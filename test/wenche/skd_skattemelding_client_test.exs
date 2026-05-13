@@ -66,5 +66,21 @@ defmodule Wenche.SkdSkattemeldingClientTest do
 
       assert body["resultat"] == "ok"
     end
+
+    test "valider sends Accept: application/xml" do
+      Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
+        headers = Map.new(conn.req_headers)
+        assert headers["accept"] == "application/xml;charset=UTF-8"
+        assert headers["content-type"] == "application/xml"
+
+        Req.Test.json(conn, %{"resultat" => "ok"})
+      end)
+
+      client =
+        SkdSkattemeldingClient.new("test-token", env: "test", req_options: @req_opts)
+
+      assert {:ok, _body} =
+               SkdSkattemeldingClient.valider(client, 2024, "912345678", "<xml/>")
+    end
   end
 end

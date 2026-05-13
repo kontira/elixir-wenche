@@ -83,14 +83,16 @@ defmodule Wenche.SkdSkattemeldingClient do
   def valider(%__MODULE__{} = client, year, org_nr, xml) do
     url = "#{client.base}/valider/#{year}/#{org_nr}"
 
+    valider_headers = [
+      {"authorization", "Bearer #{client.token}"},
+      {"content-type", "application/xml"},
+      {"accept", "application/xml;charset=UTF-8"}
+    ]
+
     case Req.post(
            url,
            Keyword.merge(
-             [
-               body: xml,
-               headers: [{"content-type", "application/xml"} | headers(client.token)],
-               receive_timeout: 30_000
-             ],
+             [body: xml, headers: valider_headers, receive_timeout: 30_000],
              client.req_options
            )
          ) do
