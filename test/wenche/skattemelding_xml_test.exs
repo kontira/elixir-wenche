@@ -83,8 +83,8 @@ defmodule Wenche.SkattemeldingXmlTest do
     }
   end
 
-  describe "generer_skattemelding_xml/2" do
-    test "produces valid XML with correct namespace" do
+  describe "generer_skattemelding_xml/3" do
+    test "produces minimal XML with correct namespace" do
       xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
 
       assert xml =~
@@ -94,116 +94,180 @@ defmodule Wenche.SkattemeldingXmlTest do
       assert xml =~ "</skattemelding>"
     end
 
-    test "includes partsnummer and inntektsaar" do
+    test "emits partsnummer and inntektsaar" do
       xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
 
       assert xml =~ "<partsnummer>912345678</partsnummer>"
       assert xml =~ "<inntektsaar>2025</inntektsaar>"
     end
 
-    test "maps income data to inntektOgUnderskudd" do
+    test "does NOT emit derived fields (Skatteetaten computes them)" do
       xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
 
-      assert xml =~ "<inntektOgUnderskudd>"
-      assert xml =~ "<naeringsinntekt>"
-      assert xml =~ "<samletInntekt>"
+      refute xml =~ "<inntekt>"
+      refute xml =~ "<naeringsinntekt>"
+      refute xml =~ "<samletInntekt>"
+      refute xml =~ "<formueOgGjeld>"
+      refute xml =~ "<bankinnskudd>"
+      refute xml =~ "<samletGjeld>"
+      refute xml =~ "nettoFormue"
+      refute xml =~ "nettoformue"
     end
 
-    test "maps balance data to formueOgGjeld" do
-      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
+    test "emits underskuddTilFremfoering only when fremfoert_underskudd > 0" do
+      konfig_zero = %SkattemeldingKonfig{underskudd_til_fremfoering: 0}
+      xml_zero = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig_zero)
+      refute xml_zero =~ "underskuddTilFremfoering"
 
-      assert xml =~ "<formueOgGjeld>"
-      assert xml =~ "<bankinnskudd>"
-      assert xml =~ "<beloepSomHeltall>300000</beloepSomHeltall>"
-      assert xml =~ "<samletGjeld>"
-      assert xml =~ "<nettoFormue>"
+      konfig_pos = %SkattemeldingKonfig{underskudd_til_fremfoering: 5_000}
+      xml_pos = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig_pos)
+      assert xml_pos =~ "<underskuddTilFremfoering>"
+      assert xml_pos =~ "<fremfoertUnderskuddFraTidligereAar>"
+      assert xml_pos =~ "<beloepSomHeltall>5000</beloepSomHeltall>"
     end
 
-    test "applies fritaksmetoden for subsidiary dividends" do
-      konfig = %SkattemeldingKonfig{
-        anvend_fritaksmetoden: true,
-        eierandel_datterselskap: 100
-      }
+    test "respects :partsnummer option" do
+      xml =
+        SkattemeldingXml.generer_skattemelding_xml(
+          sample_regnskap(),
+          %SkattemeldingKonfig{},
+          partsnummer: 4711
+        )
 
-      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig)
-
-      # With 100% ownership, dividend is fully exempt (fritatt)
-      # naeringsinntekt = driftsresultat(160000) + 0(exempt dividend) + 5000 - 12000 = 153000
-      assert xml =~
-               "<naeringsinntekt><beloepSomHeltall>153000</beloepSomHeltall></naeringsinntekt>"
-    end
-
-    test "applies 3% sjablonregel for <90% ownership" do
-      konfig = %SkattemeldingKonfig{
-        anvend_fritaksmetoden: true,
-        eierandel_datterselskap: 50
-      }
-
-      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig)
-
-      # 3% of 50000 = 1500
-      # naeringsinntekt = 160000 + 1500 + 5000 - 12000 = 154500
-      assert xml =~
-               "<naeringsinntekt><beloepSomHeltall>154500</beloepSomHeltall></naeringsinntekt>"
+      assert xml =~ "<partsnummer>4711</partsnummer>"
     end
   end
 
-  describe "generer_naeringsspesifikasjon_xml/1" do
-    test "produces valid XML with correct namespace" do
+  describe "generer_naeringsspesifikasjon_xml/2" do
+    test "produces v6 XML with correct namespace" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
       assert xml =~
-               ~s(xmlns="urn:no:skatteetaten:fastsetting:formueinntekt:naeringsspesifikasjon:ekstern:v5")
+               ~s(xmlns="urn:no:skatteetaten:fastsetting:formueinntekt:naeringsspesifikasjon:ekstern:v6")
 
       assert xml =~ "<naeringsspesifikasjon"
       assert xml =~ "</naeringsspesifikasjon>"
     end
 
-    test "includes partsreferanse and inntektsaar" do
+    test "emits partsreferanse and inntektsaar" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
       assert xml =~ "<partsreferanse>912345678</partsreferanse>"
       assert xml =~ "<inntektsaar>2025</inntektsaar>"
     end
 
-    test "maps resultatregnskap items" do
+    test "does NOT emit derived sum/computed fields" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
-      assert xml =~ "<driftsinntekt>"
-      assert xml =~ "<sumDriftsinntekt>"
-      assert xml =~ "<driftskostnad>"
-      assert xml =~ "<sumDriftskostnad>"
-      assert xml =~ "<driftsresultat>"
-      assert xml =~ "<aarsresultat>"
+      refute xml =~ "<sumDriftsinntekt"
+      refute xml =~ "<sumDriftskostnad"
+      refute xml =~ "<sumFinansinntekt"
+      refute xml =~ "<sumFinanskostnad"
+      refute xml =~ "<driftsresultat"
+      refute xml =~ "<aarsresultat"
     end
 
-    test "includes salgsinntekt line items with account types" do
+    test "emits virksomhet with correctly-spelled elements" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
-      assert xml =~ "<resultatOgBalanseregnskapstype>3000</resultatOgBalanseregnskapstype>"
-      assert xml =~ "<id>3000</id>"
+      assert xml =~ "<regnskapspliktstype>"
+      refute xml =~ "<regnskapsplikttype>"
+      assert xml =~ "<virksomhetstype>"
+      assert xml =~ ~s(<dato>2025-01-01</dato>)
+      assert xml =~ ~s(<dato>2025-12-31</dato>)
     end
 
-    test "includes virksomhet metadata" do
+    test "emits skalBekreftesAvRevisor (correct spelling, required)" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
-      assert xml =~ "<virksomhet>"
-      assert xml =~ "<regnskapsplikttype>fullRegnskapsplikt</regnskapsplikttype>"
-      assert xml =~ "<dato>2025-01-01</dato>"
-      assert xml =~ "<dato>2025-12-31</dato>"
-      assert xml =~ "<virksomhetstype>oevrigSelskap</virksomhetstype>"
-      assert xml =~ "<skalBekreftedsAvRevisor>false</skalBekreftedsAvRevisor>"
+      assert xml =~ "<skalBekreftesAvRevisor>false</skalBekreftesAvRevisor>"
+      refute xml =~ "skalBekreftedsAvRevisor"
     end
 
-    test "includes finansinntekt and finanskostnad" do
+    test "skalBekreftesAvRevisor reflects regnskap.revideres" do
+      regnskap = %{sample_regnskap() | revideres: true}
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap)
+
+      assert xml =~ "<skalBekreftesAvRevisor>true</skalBekreftesAvRevisor>"
+    end
+
+    test "annenDriftskostnad children are <kostnad> not <inntekt>" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
-      assert xml =~ "<finansinntekt>"
-      assert xml =~ "<finanskostnad>"
-      # Sum of utbytte(50000) + andre_finansinntekter(5000) = 55000
-      assert xml =~ "<sumFinansinntekt><beloep><beloep>55000</beloep></beloep></sumFinansinntekt>"
-      # Sum of rentekostnader(10000) + andre_finanskostnader(2000) = 12000
-      assert xml =~ "<sumFinanskostnad><beloep><beloep>12000</beloep></beloep></sumFinanskostnad>"
+      assert xml =~ ~r/<annenDriftskostnad>\s*<kostnad>/
+      refute xml =~ ~r/<annenDriftskostnad>\s*<inntekt>/
+    end
+
+    test "uses balanseregnskap not formueOgGjeld" do
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+
+      assert xml =~ "<balanseregnskap>"
+      refute xml =~ "<formueOgGjeld>"
+    end
+
+    test "balanseregnskap forekomst has id before beloep before type" do
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+
+      # In balanseverdi, id must come first per XSD
+      assert xml =~ ~r/<balanseverdi>\s*<id>/
+    end
+
+    test "uses 2025 kodeliste codes" do
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+
+      # Resultatregnskap codes
+      assert xml =~ ">3200<"
+      assert xml =~ ">5000<"
+      assert xml =~ ">6000<"
+      assert xml =~ ">6700<"
+      assert xml =~ ">8090<"
+      assert xml =~ ">8050<"
+      assert xml =~ ">8150<"
+      assert xml =~ ">8160<"
+
+      # Balanseregnskap codes
+      assert xml =~ ">1313<"
+      assert xml =~ ">1350<"
+      assert xml =~ ">1390<"
+      assert xml =~ ">1500<"
+      assert xml =~ ">1920<"
+      assert xml =~ ">2000<"
+      assert xml =~ ">2020<"
+      assert xml =~ ">2050<"
+      assert xml =~ ">2250<"
+      assert xml =~ ">2290<"
+      assert xml =~ ">2400<"
+      assert xml =~ ">2600<"
+      assert xml =~ ">2990<"
+    end
+
+    test "negative annen_egenkapital uses udekketTap kode 2080" do
+      regnskap = %{
+        sample_regnskap()
+        | balanse: %{
+            sample_regnskap().balanse
+            | egenkapital_og_gjeld: %{
+                sample_regnskap().balanse.egenkapital_og_gjeld
+                | egenkapital: %Egenkapital{
+                    aksjekapital: 100_000,
+                    overkursfond: 0,
+                    annen_egenkapital: -50_000
+                  }
+              }
+          }
+      }
+
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap)
+
+      assert xml =~ ">2080<"
+      refute xml =~ ">2050<"
+    end
+
+    test "respects :partsnummer option" do
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap(), partsnummer: 4711)
+
+      assert xml =~ "<partsreferanse>4711</partsreferanse>"
     end
   end
 
@@ -213,7 +277,6 @@ defmodule Wenche.SkattemeldingXmlTest do
         SkattemeldingXml.generer_request_xml(
           "<inner1/>",
           "<inner2/>",
-          dokumentidentifikator: "abc-123",
           inntektsaar: 2025
         )
 
@@ -245,66 +308,125 @@ defmodule Wenche.SkattemeldingXmlTest do
       assert xml =~ "<type>naeringsspesifikasjon</type>"
     end
 
-    test "includes dokumentreferanse and innsendingsinformasjon" do
+    test "defaults to komplett and egenfastsetting" do
+      xml = SkattemeldingXml.generer_request_xml("<a/>", "<b/>", inntektsaar: 2025)
+
+      assert xml =~ "<innsendingstype>komplett</innsendingstype>"
+      assert xml =~ "<innsendingsformaal>egenfastsetting</innsendingsformaal>"
+      assert xml =~ "<opprettetAv>Wenche</opprettetAv>"
+    end
+
+    test "supports :tin (org_nummer)" do
+      xml =
+        SkattemeldingXml.generer_request_xml("<a/>", "<b/>", inntektsaar: 2025, tin: "933773965")
+
+      assert xml =~ "<tin>933773965</tin>"
+    end
+
+    test "emits dokumentreferanseTilGjeldendeDokument from option" do
       xml =
         SkattemeldingXml.generer_request_xml(
           "<a/>",
           "<b/>",
-          dokumentidentifikator: "ref-123",
-          inntektsaar: 2025
+          inntektsaar: 2025,
+          dokumentreferanse: [{"skattemeldingUpersonlig", "ref-123"}]
         )
 
+      assert xml =~ "<dokumentreferanseTilGjeldendeDokument>"
+      assert xml =~ "<dokumenttype>skattemeldingUpersonlig</dokumenttype>"
       assert xml =~ "<dokumentidentifikator>ref-123</dokumentidentifikator>"
-      assert xml =~ "<inntektsaar>2025</inntektsaar>"
-      assert xml =~ "<innsendingstype>komplett</innsendingstype>"
-      assert xml =~ "<opprettetAv>Kontira</opprettetAv>"
+    end
+
+    test "rejects invalid innsendingstype" do
+      assert_raise ArgumentError, fn ->
+        SkattemeldingXml.generer_request_xml("<a/>", "<b/>",
+          inntektsaar: 2025,
+          innsendingstype: "delvis"
+        )
+      end
+    end
+
+    test "rejects invalid innsendingsformaal" do
+      assert_raise ArgumentError, fn ->
+        SkattemeldingXml.generer_request_xml("<a/>", "<b/>",
+          inntektsaar: 2025,
+          innsendingsformaal: "annet"
+        )
+      end
+    end
+
+    test "rejects missing inntektsaar" do
+      assert_raise ArgumentError, fn ->
+        SkattemeldingXml.generer_request_xml("<a/>", "<b/>", [])
+      end
     end
   end
 
-  describe "beregn_skattepliktig_inntekt/2" do
-    test "calculates basic taxable income" do
-      r = %Resultatregnskap{
-        driftsinntekter: %Driftsinntekter{salgsinntekter: 100_000},
-        driftskostnader: %Driftskostnader{andre_driftskostnader: 40_000},
-        finansposter: %Finansposter{}
-      }
+  describe "hent_partsnummer/1" do
+    test "extracts integer partsnummer from skattemelding XML" do
+      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
 
-      konfig = %SkattemeldingKonfig{}
-
-      {netto, skatt} = SkattemeldingXml.beregn_skattepliktig_inntekt(r, konfig)
-
-      assert netto == 60_000
-      assert skatt == 13_200
+      assert {:ok, 912_345_678} = SkattemeldingXml.hent_partsnummer(xml)
     end
 
-    test "applies loss carryforward" do
-      r = %Resultatregnskap{
-        driftsinntekter: %Driftsinntekter{salgsinntekter: 100_000},
-        driftskostnader: %Driftskostnader{andre_driftskostnader: 40_000},
-        finansposter: %Finansposter{}
-      }
+    test "returns error when partsnummer not present" do
+      assert {:error, :partsnummer_not_found} = SkattemeldingXml.hent_partsnummer("<foo/>")
+    end
+  end
 
-      konfig = %SkattemeldingKonfig{underskudd_til_fremfoering: 20_000}
+  describe "XSD validation (requires xmllint and Skatteetaten XSDs at /tmp/skattemeldingen)" do
+    @xsd_dir "/tmp/skattemeldingen/src/resources/xsd"
 
-      {netto, skatt} = SkattemeldingXml.beregn_skattepliktig_inntekt(r, konfig)
-
-      assert netto == 40_000
-      assert skatt == 8_800
+    @tag :xsd
+    test "skattemelding (v5) validates" do
+      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
+      assert_xml_valid!(xml, "#{@xsd_dir}/skattemeldingUpersonlig_v5_ekstern.xsd")
     end
 
-    test "no tax on negative income" do
-      r = %Resultatregnskap{
-        driftsinntekter: %Driftsinntekter{salgsinntekter: 20_000},
-        driftskostnader: %Driftskostnader{andre_driftskostnader: 50_000},
-        finansposter: %Finansposter{}
-      }
+    @tag :xsd
+    test "skattemelding (v5) with fremfoert underskudd validates" do
+      xml =
+        SkattemeldingXml.generer_skattemelding_xml(
+          sample_regnskap(),
+          %SkattemeldingKonfig{underskudd_til_fremfoering: 7_500}
+        )
 
-      konfig = %SkattemeldingKonfig{}
+      assert_xml_valid!(xml, "#{@xsd_dir}/skattemeldingUpersonlig_v5_ekstern.xsd")
+    end
 
-      {netto, skatt} = SkattemeldingXml.beregn_skattepliktig_inntekt(r, konfig)
+    @tag :xsd
+    test "naeringsspesifikasjon (v6) validates" do
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+      assert_xml_valid!(xml, "#{@xsd_dir}/naeringsspesifikasjon_v6_ekstern.xsd")
+    end
 
-      assert netto == -30_000
-      assert skatt == 0
+    @tag :xsd
+    test "request envelope (v2) validates" do
+      sm = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
+      ne = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+
+      req =
+        SkattemeldingXml.generer_request_xml(sm, ne, inntektsaar: 2025, tin: "912345678")
+
+      assert_xml_valid!(req, "#{@xsd_dir}/skattemeldingognaeringsspesifikasjonrequest_v2.xsd")
+    end
+
+    defp assert_xml_valid!(xml, schema_path) do
+      unless File.exists?(schema_path), do: flunk("Schema not found: #{schema_path}")
+
+      path =
+        Path.join(System.tmp_dir!(), "wenche_xsd_test_#{System.unique_integer([:positive])}.xml")
+
+      File.write!(path, xml)
+
+      {output, status} =
+        System.cmd("xmllint", ["--schema", schema_path, path, "--noout"], stderr_to_stdout: true)
+
+      File.rm(path)
+
+      unless status == 0 do
+        flunk("XSD validation failed for #{schema_path}:\n#{output}\n\nXML:\n#{xml}")
+      end
     end
   end
 end
