@@ -64,6 +64,20 @@ defmodule Wenche.AltinnClientTest do
       assert body["id"] == "50012345/abc-123"
     end
 
+    test "opprett_instans skattemelding targets the formueinntekt-skattemelding-v2 app" do
+      Req.Test.stub(Wenche.AltinnClient.Struct, fn conn ->
+        assert conn.host == "skd.apps.tt02.altinn.no"
+        assert conn.request_path == "/skd/formueinntekt-skattemelding-v2/instances"
+
+        conn
+        |> Plug.Conn.put_status(201)
+        |> Req.Test.json(%{"id" => "50012345/abc-123"})
+      end)
+
+      client = AltinnClient.new("test-token", env: "test", req_options: @struct_opts)
+      assert {:ok, _} = AltinnClient.opprett_instans(client, "skattemelding", "912345678")
+    end
+
     test "hent_status passes req_options through" do
       Req.Test.stub(Wenche.AltinnClient.Struct, fn conn ->
         assert conn.method == "GET"

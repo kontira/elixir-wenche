@@ -27,7 +27,7 @@ defmodule Wenche.AltinnClient do
   @apps %{
     "aarsregnskap" => %{org: "brg", app: "aarsregnskap-vanlig-202406"},
     "aksjonaerregister" => %{org: "skd", app: "a2-1051-241111"},
-    "skattemelding" => %{org: "skd", app: "formueinntekt-selskapsmelding"},
+    "skattemelding" => %{org: "skd", app: "formueinntekt-skattemelding-v2"},
     "mva_melding" => %{org: "skd", app: "mva-melding-innsending-v1"}
   }
 
