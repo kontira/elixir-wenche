@@ -337,15 +337,18 @@ defmodule Wenche.BrgXml do
     String.trim(xml)
   end
 
-  # Helper to generate a line element with altinnRowId, only if value != 0
+  # Repeatable line element with `<beskrivelse>`. Only emitted when value or
+  # prior-year value is non-zero. `altinnRowId` is intentionally NOT emitted —
+  # the BRG RR-0002 underskjema XSD does not allow it. Earlier ports (Python +
+  # this Elixir port pre-fix) emitted it because Altinn-Studio-style models
+  # carry it, but BRG's validator silently discards it. Removing it makes
+  # output strict-XSD-conformant.
   defp linje(tag, verdi, besk, orid_besk, orid_aarets, orid_fjor, fjor_verdi) do
     if verdi == 0 and fjor_verdi == 0 do
       ""
     else
-      row_id = UUID.uuid4()
-
       """
-              <#{tag} altinnRowId="#{row_id}">
+              <#{tag}>
                 <beskrivelse orid="#{orid_besk}">#{escape(besk)}</beskrivelse>
                 <aarets orid="#{orid_aarets}">#{verdi}</aarets>
                 <fjoraarets orid="#{orid_fjor}">#{fjor_verdi}</fjoraarets>

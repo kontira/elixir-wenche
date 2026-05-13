@@ -214,4 +214,100 @@ defmodule Wenche.BrgXmlTest do
       assert xml =~ "<egenkapitalAvslutningsbalanse>"
     end
   end
+
+  describe "altinnRowId is NOT emitted" do
+    test "hovedskjema has no altinnRowId attribute" do
+      xml = BrgXml.generer_hovedskjema(sample_regnskap())
+      refute xml =~ "altinnRowId"
+    end
+
+    test "underskjema has no altinnRowId attribute" do
+      xml = BrgXml.generer_underskjema(sample_regnskap())
+      refute xml =~ "altinnRowId"
+    end
+  end
+
+  describe "XSD validation (requires xmllint and brreg/docs XSDs at /tmp/brreg-docs)" do
+    @xsd_dir "/tmp/brreg-docs/content/apidokumentasjon/regnskapsregisteret/dokumentasjon-datamodeller-og-designmaler/RR-0002-Vanlig"
+
+    @tag :xsd
+    test "hovedskjema validates against RR-0002 (1266) XSD" do
+      xml = BrgXml.generer_hovedskjema(sample_regnskap(), system_navn: "Wenche-Test")
+      assert_xml_valid!(xml, "#{@xsd_dir}/RR-0002_1266-51820.xsd")
+    end
+
+    @tag :xsd
+    test "underskjema validates against RR-0002 underskjema (758) XSD" do
+      xml = BrgXml.generer_underskjema(sample_regnskap())
+      assert_xml_valid!(xml, "#{@xsd_dir}/RR-0002-U_758-51980.xsd")
+    end
+
+    # Known limitation: when foregaaende_aar_* are populated, BrgXml emits a
+    # <noteEgenkapital> element (rskl. § 7-2b equity reconciliation) that the
+    # strict XSD does not define under <noter>. Valid note children per
+    # RR-0002-U_758-51980.xsd are: noteLaanLedendePerson, noteTilknyttetSelskap,
+    # noteSpesifiseringResultatregnskap, noteEkstraordnaereInntekterKostnader,
+    # noteKundefordringer, noteGjeld, noteFinansielleInstrumenter,
+    # noteAnleggsmidlerDriftsmidler, noteNummerUtenforMinimumskravSmaaForetak,
+    # noteYtterligereOpplysninger.
+    # BRG's live validator silently accepts <noteEgenkapital>; strict XSD does
+    # not. Fixing requires moving the equity reconciliation into
+    # <noteYtterligereOpplysninger> as free text. Not addressed here.
+
+    @tag :xsd
+    test "underskjema validates with negative annen_egenkapital (udekket tap)" do
+      regnskap = %{
+        sample_regnskap()
+        | balanse: %{
+            sample_regnskap().balanse
+            | egenkapital_og_gjeld: %{
+                sample_regnskap().balanse.egenkapital_og_gjeld
+                | egenkapital: %Egenkapital{
+                    aksjekapital: 100_000,
+                    overkursfond: 0,
+                    annen_egenkapital: -25_000
+                  }
+              }
+          }
+      }
+
+      xml = BrgXml.generer_underskjema(regnskap)
+      assert_xml_valid!(xml, "#{@xsd_dir}/RR-0002-U_758-51980.xsd")
+    end
+
+    @tag :xsd
+    test "underskjema validates with negative kortsiktig gjeld (rounding artifact)" do
+      regnskap = %{
+        sample_regnskap()
+        | balanse: %{
+            sample_regnskap().balanse
+            | egenkapital_og_gjeld: %{
+                sample_regnskap().balanse.egenkapital_og_gjeld
+                | kortsiktig_gjeld: %KortsiktigGjeld{annen_kortsiktig_gjeld: -1}
+              }
+          }
+      }
+
+      xml = BrgXml.generer_underskjema(regnskap)
+      assert_xml_valid!(xml, "#{@xsd_dir}/RR-0002-U_758-51980.xsd")
+    end
+
+    defp assert_xml_valid!(xml, schema_path) do
+      unless File.exists?(schema_path), do: flunk("Schema not found: #{schema_path}")
+
+      path = Path.join(System.tmp_dir!(), "brg_xsd_test_#{System.unique_integer([:positive])}.xml")
+      File.write!(path, xml)
+
+      {output, status} =
+        System.cmd("xmllint", ["--schema", schema_path, path, "--noout"],
+          stderr_to_stdout: true
+        )
+
+      File.rm(path)
+
+      unless status == 0 do
+        flunk("XSD validation failed for #{schema_path}:\n#{output}\n\nXML:\n#{xml}")
+      end
+    end
+  end
 end
