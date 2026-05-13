@@ -734,14 +734,16 @@ defmodule Wenche.Skattemelding do
     org = regnskap.selskap.org_nummer
     aar = regnskap.regnskapsaar
 
-    skattemelding_xml = SkattemeldingXml.generer_skattemelding_xml(regnskap, konfig)
-    naering_xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap)
+    xml_opts = Keyword.take(opts, [:partsnummer])
+
+    skattemelding_xml = SkattemeldingXml.generer_skattemelding_xml(regnskap, konfig, xml_opts)
+    naering_xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap, xml_opts)
 
     request_xml =
       SkattemeldingXml.generer_request_xml(
         skattemelding_xml,
         naering_xml,
-        Keyword.take(opts, [:dokumentidentifikator]) ++ [inntektsaar: aar]
+        request_envelope_opts(opts, aar, org)
       )
 
     if dry_run do
@@ -785,16 +787,33 @@ defmodule Wenche.Skattemelding do
     aar = regnskap.regnskapsaar
     org = regnskap.selskap.org_nummer
 
-    skattemelding_xml = SkattemeldingXml.generer_skattemelding_xml(regnskap, konfig)
-    naering_xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap)
+    xml_opts = Keyword.take(opts, [:partsnummer])
+
+    skattemelding_xml = SkattemeldingXml.generer_skattemelding_xml(regnskap, konfig, xml_opts)
+    naering_xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap, xml_opts)
 
     request_xml =
       SkattemeldingXml.generer_request_xml(
         skattemelding_xml,
         naering_xml,
-        Keyword.take(opts, [:dokumentidentifikator]) ++ [inntektsaar: aar]
+        request_envelope_opts(opts, aar, org)
       )
 
     SkdSkattemeldingClient.valider(skd_client, aar, org, request_xml)
+  end
+
+  defp request_envelope_opts(opts, aar, org) do
+    base = [inntektsaar: aar, tin: org]
+
+    case Keyword.get(opts, :dokumentidentifikator) do
+      nil ->
+        base
+
+      "" ->
+        base
+
+      ident ->
+        Keyword.put(base, :dokumentreferanse, [{"skattemeldingUpersonlig", ident}])
+    end
   end
 end
