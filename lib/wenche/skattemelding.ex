@@ -736,20 +736,20 @@ defmodule Wenche.Skattemelding do
 
     skd_client = Keyword.get(opts, :skd_client)
 
-    case resolve_partsnummer(opts, skd_client, aar, org) do
-      {:ok, partsnummer} ->
-        do_send_inn(regnskap, konfig, client, opts, partsnummer, dry_run)
+    case resolve_utkast_referanse(opts, skd_client, aar, org) do
+      {:ok, ref} ->
+        do_send_inn(regnskap, konfig, client, opts, ref, dry_run)
 
       {:error, reason} ->
-        {:error, {:partsnummer_failed, reason}}
+        {:error, {:utkast_referanse_failed, reason}}
     end
   end
 
-  defp do_send_inn(regnskap, konfig, client, opts, partsnummer, dry_run) do
+  defp do_send_inn(regnskap, konfig, client, opts, ref, dry_run) do
     org = regnskap.selskap.org_nummer
     aar = regnskap.regnskapsaar
 
-    xml_opts = [partsnummer: partsnummer]
+    xml_opts = [partsnummer: ref.partsnummer]
 
     skattemelding_xml = SkattemeldingXml.generer_skattemelding_xml(regnskap, konfig, xml_opts)
     naering_xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap, xml_opts)
@@ -758,7 +758,7 @@ defmodule Wenche.Skattemelding do
       SkattemeldingXml.generer_request_xml(
         skattemelding_xml,
         naering_xml,
-        request_envelope_opts(opts, aar, org)
+        request_envelope_opts(opts, aar, org, ref)
       )
 
     if dry_run do
@@ -802,9 +802,9 @@ defmodule Wenche.Skattemelding do
     aar = regnskap.regnskapsaar
     org = regnskap.selskap.org_nummer
 
-    case resolve_partsnummer(opts, skd_client, aar, org) do
-      {:ok, partsnummer} ->
-        xml_opts = [partsnummer: partsnummer]
+    case resolve_utkast_referanse(opts, skd_client, aar, org) do
+      {:ok, ref} ->
+        xml_opts = [partsnummer: ref.partsnummer]
 
         skattemelding_xml =
           SkattemeldingXml.generer_skattemelding_xml(regnskap, konfig, xml_opts)
@@ -815,42 +815,59 @@ defmodule Wenche.Skattemelding do
           SkattemeldingXml.generer_request_xml(
             skattemelding_xml,
             naering_xml,
-            request_envelope_opts(opts, aar, org)
+            request_envelope_opts(opts, aar, org, ref)
           )
 
         SkdSkattemeldingClient.valider(skd_client, aar, org, request_xml)
 
       {:error, reason} ->
-        {:error, {:partsnummer_failed, reason}}
+        {:error, {:utkast_referanse_failed, reason}}
     end
   end
 
-  defp resolve_partsnummer(opts, skd_client, aar, org) do
+  # Resolves both the company's partsnummer and the dokumentidentifikator(s)
+  # for `<dokumentreferanseTilGjeldendeDokument>` in one fetch from
+  # `GET /api/skattemelding/v2/{year}/{org}`. Without the dokumentreferanse,
+  # Skatteetaten's /valider and /innsendelse reject the request with
+  # `innkommendeForespoerselManglerReferanseTilGjeldendeSkattemelding`.
+  defp resolve_utkast_referanse(opts, skd_client, aar, org) do
     case Keyword.get(opts, :partsnummer) do
       partsnummer when is_integer(partsnummer) ->
-        {:ok, partsnummer}
+        {:ok,
+         %{
+           partsnummer: partsnummer,
+           skattemelding_id: Keyword.get(opts, :dokumentidentifikator),
+           naering_id: nil
+         }}
 
       _ ->
         if is_nil(skd_client) do
-          {:ok, org}
+          {:ok, %{partsnummer: org, skattemelding_id: nil, naering_id: nil}}
         else
-          SkdSkattemeldingClient.hent_partsnummer(skd_client, aar, org)
+          SkdSkattemeldingClient.hent_utkast_referanse(skd_client, aar, org)
         end
     end
   end
 
-  defp request_envelope_opts(opts, aar, org) do
+  defp request_envelope_opts(opts, aar, org, ref) do
     base = [inntektsaar: aar, tin: org]
 
-    case Keyword.get(opts, :dokumentidentifikator) do
-      nil ->
-        base
+    sm_id = ref.skattemelding_id || Keyword.get(opts, :dokumentidentifikator)
+    ne_id = ref.naering_id
 
-      "" ->
-        base
+    refs =
+      []
+      |> append_ref("skattemeldingUpersonlig", sm_id)
+      |> append_ref("naeringsspesifikasjon", ne_id)
 
-      ident ->
-        Keyword.put(base, :dokumentreferanse, [{"skattemeldingUpersonlig", ident}])
+    if refs == [] do
+      base
+    else
+      Keyword.put(base, :dokumentreferanse, refs)
     end
   end
+
+  defp append_ref(acc, _type, nil), do: acc
+  defp append_ref(acc, _type, ""), do: acc
+  defp append_ref(acc, type, id), do: acc ++ [{type, id}]
 end

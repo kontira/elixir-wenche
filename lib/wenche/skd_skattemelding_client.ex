@@ -102,7 +102,10 @@ defmodule Wenche.SkdSkattemeldingClient do
            )
          ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
-        {:ok, body}
+        case parse_validation_result(body) do
+          :ok -> {:ok, body}
+          {:error, reason} -> {:error, {:validation_failed, reason, body}}
+        end
 
       {:ok, %Req.Response{status: status, body: body}} ->
         {:error, {:valider_failed, status, body}}
@@ -111,6 +114,38 @@ defmodule Wenche.SkdSkattemeldingClient do
         {:error, {:request_failed, reason}}
     end
   end
+
+  # Skatteetaten's /valider returns HTTP 200 even when the document is rejected
+  # semantically. The actual outcome lives in <resultatAvValidering> with values
+  # `validertUtenFeil` (success) or `validertMedFeil` (failure). Treat the
+  # latter as an error so callers don't silently proceed with a bad submission.
+  defp parse_validation_result(body) when is_binary(body) do
+    case Regex.run(
+           ~r{<(?:\w+:)?resultatAvValidering>\s*([^<]+?)\s*</(?:\w+:)?resultatAvValidering>},
+           body
+         ) do
+      [_, "validertUtenFeil"] ->
+        :ok
+
+      [_, "validertMedFeil"] ->
+        reasons =
+          Regex.scan(
+            ~r{<(?:\w+:)?avvikstype>\s*([^<]+?)\s*</(?:\w+:)?avvikstype>},
+            body
+          )
+          |> Enum.map(fn [_, code] -> String.trim(code) end)
+
+        {:error, {:validert_med_feil, reasons}}
+
+      _ ->
+        # Body doesn't contain the expected element — treat as success and let
+        # the caller inspect the body. Avoids false negatives on responses we
+        # don't fully model.
+        :ok
+    end
+  end
+
+  defp parse_validation_result(_), do: :ok
 
   @doc """
   Fetches the pre-filled skattemelding XML from Skatteetaten.
@@ -157,6 +192,119 @@ defmodule Wenche.SkdSkattemeldingClient do
   def hent_partsnummer(%__MODULE__{} = client, year, org_nr) do
     with {:ok, xml} <- hent_forhandsutfylt(client, year, org_nr) do
       SkattemeldingXml.hent_partsnummer(xml)
+    end
+  end
+
+  @doc """
+  Fetches the pre-filled draft AND the document identifiers that the request
+  envelope must reference back via `<dokumentreferanseTilGjeldendeDokument>`.
+
+  Skatteetaten's `/valider` and `/innsendelse` endpoints both reject a request
+  envelope that lacks a reference to the current draft, with the error
+  `innkommendeForespoerselManglerReferanseTilGjeldendeSkattemelding`.
+
+  Returns `{:ok, %{partsnummer: integer, skattemelding_id: binary,
+  naering_id: binary | nil}}` or `{:error, reason}`.
+
+  - `partsnummer` — Skatteetaten's internal integer ID for the company,
+    extracted from the inner skattemelding XML.
+  - `skattemelding_id` — `<id>` of `<skattemeldingdokument>` in the response
+    wrapper; goes into `<dokumentreferanseTilGjeldendeDokument>` with type
+    `skattemeldingUpersonlig`.
+  - `naering_id` — `<id>` of `<naeringsspesifikasjondokument>` (optional in
+    the schema; may be nil if not present).
+  """
+  def hent_utkast_referanse(%__MODULE__{} = client, year, org_nr) do
+    url = "#{client.base}/#{year}/#{org_nr}"
+
+    request_headers = [
+      {"authorization", "Bearer #{client.token}"},
+      {"accept", "application/xml"}
+    ]
+
+    with {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) <-
+           Req.get(
+             url,
+             Keyword.merge(
+               [headers: request_headers, receive_timeout: 30_000],
+               client.req_options
+             )
+           ),
+         %{xml: inner_xml, skattemelding_id: sm_id, naering_id: ne_id} <-
+           parse_forespoersel_response(body),
+         {:ok, partsnummer} <- SkattemeldingXml.hent_partsnummer(inner_xml) do
+      {:ok, %{partsnummer: partsnummer, skattemelding_id: sm_id, naering_id: ne_id}}
+    else
+      {:ok, %Req.Response{status: status, body: body}} ->
+        {:error, {:utkast_failed, status, body}}
+
+      {:error, _} = err ->
+        err
+
+      :error ->
+        {:error, :utkast_unparseable}
+
+      other when is_binary(other) ->
+        # parse returned just XML (no wrapper) → no dokumentidentifikator
+        case SkattemeldingXml.hent_partsnummer(other) do
+          {:ok, partsnummer} ->
+            {:ok, %{partsnummer: partsnummer, skattemelding_id: nil, naering_id: nil}}
+
+          err ->
+            err
+        end
+    end
+  end
+
+  defp parse_forespoersel_response(body) do
+    if String.contains?(body, @forespoersel_response_ns) do
+      parse_wrapper(body)
+    else
+      # raw inner XML without wrapper
+      body
+    end
+  end
+
+  defp parse_wrapper(body) do
+    sm_id = extract_skattemelding_id(body)
+    ne_id = extract_naering_id(body)
+
+    with b64 when not is_nil(b64) <- extract_content_b64(body),
+         xml when not is_nil(xml) <- decode_b64(b64) do
+      %{xml: xml, skattemelding_id: sm_id, naering_id: ne_id}
+    else
+      _ -> :error
+    end
+  end
+
+  defp extract_skattemelding_id(body) do
+    # <skattemeldingdokument>...<id>...</id>...
+    case Regex.run(
+           ~r{<(?:\w+:)?skattemeldingdokument\b[^>]*>.*?<(?:\w+:)?id>\s*([^<]+?)\s*</(?:\w+:)?id>}s,
+           body
+         ) do
+      [_, id] -> String.trim(id)
+      _ -> nil
+    end
+  end
+
+  defp extract_naering_id(body) do
+    case Regex.run(
+           ~r{<(?:\w+:)?naeringsspesifikasjondokument\b[^>]*>.*?<(?:\w+:)?id>\s*([^<]+?)\s*</(?:\w+:)?id>}s,
+           body
+         ) do
+      [_, id] -> String.trim(id)
+      _ -> nil
+    end
+  end
+
+  defp extract_content_b64(body) do
+    case Regex.run(
+           ~r{<(?:\w+:)?content[^>]*>\s*([A-Za-z0-9+/=\s]+)\s*</(?:\w+:)?content>},
+           body
+         ) do
+      [_, b64] -> b64
+      _ -> nil
     end
   end
 

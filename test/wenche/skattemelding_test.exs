@@ -310,7 +310,7 @@ defmodule Wenche.SkattemeldingTest do
       refute decoded =~ "<partsnummer>912345678</partsnummer>"
     end
 
-    test "returns {:error, {:partsnummer_failed, _}} when utkast fails" do
+    test "returns {:error, {:utkast_referanse_failed, _}} when utkast fails" do
       Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
         Plug.Conn.resp(conn, 500, "boom")
       end)
@@ -318,8 +318,67 @@ defmodule Wenche.SkattemeldingTest do
       skd_client =
         Wenche.SkdSkattemeldingClient.new("token", env: "test", req_options: @req_opts)
 
-      assert {:error, {:partsnummer_failed, _}} =
+      assert {:error, {:utkast_referanse_failed, _}} =
                Skattemelding.valider(sample_regnskap(), %SkattemeldingKonfig{}, skd_client)
+    end
+
+    test "valider posts dokumentreferanseTilGjeldendeDokument from utkast response" do
+      # Mirror Skatteetaten's documented response shape (see
+      # docs/test/testinnsending/upersonlig-as-2022.ipynb).
+      inner_xml =
+        ~s|<?xml version="1.0"?><skattemelding xmlns="urn:no:skatteetaten:fastsetting:formueinntekt:skattemelding:upersonlig:ekstern:v5"><partsnummer>9001</partsnummer><inntektsaar>2025</inntektsaar></skattemelding>|
+
+      inner_b64 = Base.encode64(inner_xml)
+
+      wrapper = """
+      <skattemeldingOgNaeringsspesifikasjonforespoerselResponse xmlns="no:skatteetaten:fastsetting:formueinntekt:skattemeldingognaeringsspesifikasjon:forespoersel:response:v2">
+        <dokumenter>
+          <skattemeldingdokument>
+            <id>SKI:755:9876543</id>
+            <encoding>utf-8</encoding>
+            <content>#{inner_b64}</content>
+            <type>skattemeldingUpersonligUtkast</type>
+          </skattemeldingdokument>
+        </dokumenter>
+      </skattemeldingOgNaeringsspesifikasjonforespoerselResponse>
+      """
+
+      response_ok = """
+      <skattemeldingOgNaeringsspesifikasjonResponse xmlns="no:skatteetaten:fastsetting:formueinntekt:skattemeldingognaeringsspesifikasjon:response:v2">
+        <resultatAvValidering>validertUtenFeil</resultatAvValidering>
+      </skattemeldingOgNaeringsspesifikasjonResponse>
+      """
+
+      ref = make_ref()
+
+      Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
+        case conn.method do
+          "GET" ->
+            conn
+            |> Plug.Conn.put_resp_content_type("application/xml")
+            |> Plug.Conn.resp(200, wrapper)
+
+          "POST" ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            send(self(), {ref, body})
+
+            conn
+            |> Plug.Conn.put_resp_content_type("application/xml")
+            |> Plug.Conn.resp(200, response_ok)
+        end
+      end)
+
+      skd_client =
+        Wenche.SkdSkattemeldingClient.new("token", env: "test", req_options: @req_opts)
+
+      assert {:ok, _body} =
+               Skattemelding.valider(sample_regnskap(), %SkattemeldingKonfig{}, skd_client)
+
+      assert_received {^ref, posted_body}
+
+      assert posted_body =~ "<dokumentreferanseTilGjeldendeDokument>"
+      assert posted_body =~ "<dokumenttype>skattemeldingUpersonlig</dokumenttype>"
+      assert posted_body =~ "<dokumentidentifikator>SKI:755:9876543</dokumentidentifikator>"
     end
 
     test "honors explicit :partsnummer opt without fetching utkast" do

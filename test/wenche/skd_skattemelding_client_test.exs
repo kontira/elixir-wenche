@@ -144,4 +144,136 @@ defmodule Wenche.SkdSkattemeldingClientTest do
                SkdSkattemeldingClient.hent_forhandsutfylt(client, 2024, "912345678")
     end
   end
+
+  describe "hent_utkast_referanse/3" do
+    # Real-world response shape captured from Skatteetaten's docs notebook
+    # (docs/test/testinnsending/upersonlig-as-2022.ipynb):
+    #
+    #   GET https://idporten-api-test.sits.no/api/skattemelding/v2/2023/313010511
+    #   → skattemeldingOgNaeringsspesifikasjonforespoerselResponse with
+    #     <skattemeldingdokument><id>SKI:755:134559</id>...
+    test "extracts partsnummer + skattemelding dokumentidentifikator from real response shape" do
+      inner_xml =
+        ~s|<?xml version="1.0" encoding="UTF-8"?><skattemelding xmlns="urn:no:skatteetaten:fastsetting:formueinntekt:skattemelding:upersonlig:ekstern:v5"><partsnummer>300146577</partsnummer><inntektsaar>2023</inntektsaar></skattemelding>|
+
+      inner_b64 = Base.encode64(inner_xml)
+
+      wrapper = """
+      <?xml version="1.0" ?>
+      <skattemeldingOgNaeringsspesifikasjonforespoerselResponse xmlns="no:skatteetaten:fastsetting:formueinntekt:skattemeldingognaeringsspesifikasjon:forespoersel:response:v2">
+        <dokumenter>
+          <skattemeldingdokument>
+            <id>SKI:755:134559</id>
+            <encoding>utf-8</encoding>
+            <content>#{inner_b64}</content>
+            <type>skattemeldingUpersonligUtkast</type>
+          </skattemeldingdokument>
+        </dokumenter>
+      </skattemeldingOgNaeringsspesifikasjonforespoerselResponse>
+      """
+
+      Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/xml")
+        |> Plug.Conn.resp(200, wrapper)
+      end)
+
+      client =
+        SkdSkattemeldingClient.new("test-token", env: "test", req_options: @req_opts)
+
+      assert {:ok, ref} = SkdSkattemeldingClient.hent_utkast_referanse(client, 2023, "313010511")
+      assert ref.partsnummer == 300_146_577
+      assert ref.skattemelding_id == "SKI:755:134559"
+      assert ref.naering_id == nil
+    end
+
+    test "extracts naeringsspesifikasjon dokumentidentifikator when present" do
+      inner_xml =
+        ~s|<?xml version="1.0"?><skattemelding xmlns="urn:no:skatteetaten:fastsetting:formueinntekt:skattemelding:upersonlig:ekstern:v5"><partsnummer>4711</partsnummer><inntektsaar>2024</inntektsaar></skattemelding>|
+
+      inner_b64 = Base.encode64(inner_xml)
+      ne_b64 = Base.encode64("<naeringsspesifikasjon/>")
+
+      wrapper = """
+      <skattemeldingOgNaeringsspesifikasjonforespoerselResponse xmlns="no:skatteetaten:fastsetting:formueinntekt:skattemeldingognaeringsspesifikasjon:forespoersel:response:v2">
+        <dokumenter>
+          <skattemeldingdokument>
+            <id>SKI:755:200001</id>
+            <encoding>utf-8</encoding>
+            <content>#{inner_b64}</content>
+            <type>skattemeldingUpersonligUtkast</type>
+          </skattemeldingdokument>
+          <naeringsspesifikasjondokument>
+            <id>SKI:755:200002</id>
+            <encoding>utf-8</encoding>
+            <content>#{ne_b64}</content>
+          </naeringsspesifikasjondokument>
+        </dokumenter>
+      </skattemeldingOgNaeringsspesifikasjonforespoerselResponse>
+      """
+
+      Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/xml")
+        |> Plug.Conn.resp(200, wrapper)
+      end)
+
+      client =
+        SkdSkattemeldingClient.new("test-token", env: "test", req_options: @req_opts)
+
+      assert {:ok, ref} = SkdSkattemeldingClient.hent_utkast_referanse(client, 2024, "912345678")
+      assert ref.partsnummer == 4711
+      assert ref.skattemelding_id == "SKI:755:200001"
+      assert ref.naering_id == "SKI:755:200002"
+    end
+  end
+
+  describe "valider/4 semantic result detection" do
+    test "treats validertMedFeil response as an error" do
+      response = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <skattemeldingOgNaeringsspesifikasjonResponse xmlns="no:skatteetaten:fastsetting:formueinntekt:skattemeldingognaeringsspesifikasjon:response:v2">
+        <avvikVedValidering>
+          <avvik><avvikstype>innkommendeForespoerselManglerReferanseTilGjeldendeSkattemelding</avvikstype></avvik>
+        </avvikVedValidering>
+        <resultatAvValidering>validertMedFeil</resultatAvValidering>
+        <aarsakTilValidertMedFeil>innkommendeForespoerselManglerReferanseTilGjeldendeSkattemelding</aarsakTilValidertMedFeil>
+      </skattemeldingOgNaeringsspesifikasjonResponse>
+      """
+
+      Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/xml")
+        |> Plug.Conn.resp(200, response)
+      end)
+
+      client =
+        SkdSkattemeldingClient.new("test-token", env: "test", req_options: @req_opts)
+
+      assert {:error, {:validation_failed, {:validert_med_feil, reasons}, _body}} =
+               SkdSkattemeldingClient.valider(client, 2025, "933773965", "<xml/>")
+
+      assert "innkommendeForespoerselManglerReferanseTilGjeldendeSkattemelding" in reasons
+    end
+
+    test "treats validertUtenFeil response as success" do
+      response = """
+      <skattemeldingOgNaeringsspesifikasjonResponse xmlns="no:skatteetaten:fastsetting:formueinntekt:skattemeldingognaeringsspesifikasjon:response:v2">
+        <resultatAvValidering>validertUtenFeil</resultatAvValidering>
+      </skattemeldingOgNaeringsspesifikasjonResponse>
+      """
+
+      Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/xml")
+        |> Plug.Conn.resp(200, response)
+      end)
+
+      client =
+        SkdSkattemeldingClient.new("test-token", env: "test", req_options: @req_opts)
+
+      assert {:ok, _body} =
+               SkdSkattemeldingClient.valider(client, 2025, "933773965", "<xml/>")
+    end
+  end
 end
