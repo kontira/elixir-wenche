@@ -188,6 +188,78 @@ defmodule Wenche.AltinnClient do
   end
 
   @doc """
+  Uploads the skattemelding envelope (skattemeldingOgNaeringsspesifikasjon)
+  as a new data element on the instance.
+
+  The SKD `formueinntekt-skattemelding-v2` app expects:
+
+    - POST (not PUT) to `/instances/{id}/data?dataType=skattemeldingOgNaeringsspesifikasjon`
+    - `Content-Type: text/xml`
+    - `Content-Disposition: attachment; filename=skattemelding.xml` — no quotes
+      around the filename; the app's parser is sensitive to this.
+
+  Returns `{:ok, response_body}` or `{:error, reason}`.
+  """
+  def last_opp_skattemelding_konvolutt(%__MODULE__{} = client, instans, konvolutt) do
+    instance_id = instans["id"]
+
+    url =
+      "#{app_base(client, "skattemelding")}/instances/#{instance_id}" <>
+        "/data?dataType=skattemeldingOgNaeringsspesifikasjon"
+
+    headers = [
+      {"content-type", "text/xml"},
+      {"content-disposition", "attachment; filename=skattemelding.xml"}
+      | auth_headers(client.token)
+    ]
+
+    case Req.post(
+           url,
+           Keyword.merge(
+             [body: konvolutt, headers: headers, receive_timeout: 30_000],
+             client.req_options
+           )
+         ) do
+      {:ok, %Req.Response{status: status, body: body}} when status in [200, 201] ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        {:error, {:altinn_upload_error, status, body}}
+
+      {:error, reason} ->
+        {:error, {:altinn_request_failed, reason}}
+    end
+  end
+
+  @doc """
+  Advances the instance one process step (`PUT /process/next`) without
+  returning the inbox URL. Use `fullfoor_instans/3` for the final step.
+
+  Returns `{:ok, response_body}` or `{:error, reason}`.
+  """
+  def neste_prosesssteg(%__MODULE__{} = client, app_key, instans) do
+    instance_id = instans["id"]
+    url = "#{app_base(client, app_key)}/instances/#{instance_id}/process/next"
+
+    case Req.put(
+           url,
+           Keyword.merge(
+             [headers: auth_headers(client.token), receive_timeout: 30_000],
+             client.req_options
+           )
+         ) do
+      {:ok, %Req.Response{status: status, body: body}} when status in [200, 201] ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        {:error, {:altinn_process_error, status, body}}
+
+      {:error, reason} ->
+        {:error, {:altinn_request_failed, reason}}
+    end
+  end
+
+  @doc """
   Advances the instance to the signing step and returns the Altinn inbox URL
   where the user can sign with BankID/ID-Porten.
 

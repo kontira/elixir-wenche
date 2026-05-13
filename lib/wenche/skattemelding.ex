@@ -771,16 +771,25 @@ defmodule Wenche.Skattemelding do
 
       {:ok, {:dry_run, skattemelding_fil, naering_fil, request_fil}}
     else
+      # SKD's formueinntekt-skattemelding-v2 expects (mirrors the Python reference):
+      #   1. POST /instances                                  → opprett_instans
+      #   2. PUT  /data/<Skattemeldingsapp_v2>  (JSON inntektsaar)
+      #   3. POST /data?dataType=skattemeldingOgNaeringsspesifikasjon (XML envelope)
+      #   4. PUT  /process/next                               → neste_prosesssteg
+      #   5. PUT  /process/next                               → fullfoor_instans
       with {:ok, instans} <- AltinnClient.opprett_instans(client, "skattemelding", org),
            {:ok, _} <-
              AltinnClient.oppdater_data_element(
                client,
                "skattemelding",
                instans,
-               "skattemelding",
-               request_xml,
-               "application/xml"
-             ) do
+               "Skattemeldingsapp_v2",
+               Jason.encode!(%{inntektsaar: aar}),
+               "application/json"
+             ),
+           {:ok, _} <-
+             AltinnClient.last_opp_skattemelding_konvolutt(client, instans, request_xml),
+           {:ok, _} <- AltinnClient.neste_prosesssteg(client, "skattemelding", instans) do
         AltinnClient.fullfoor_instans(client, "skattemelding", instans)
       end
     end

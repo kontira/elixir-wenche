@@ -26,6 +26,7 @@ defmodule Wenche.MixProject do
 
   defp deps do
     [
+      {:jason, "~> 1.4"},
       {:joken, "~> 2.6"},
       {:req, "~> 0.5"},
       {:xml_builder, "~> 2.3"},
