@@ -94,6 +94,18 @@ defmodule Wenche.MaskinportenTest do
     end
   end
 
+  describe "skattemelding_scope/0" do
+    test "includes the SKD scope and both Altinn instance scopes" do
+      scopes = Maskinporten.skattemelding_scope()
+      assert scopes =~ "skatteetaten:formueinntekt/skattemelding"
+      # The Altinn scopes are required so SKD can resolve the systemuser →
+      # executor trace via Altinn — without them, /valider and /innsendelse
+      # reject with `innkommendeForespoerselManglerSporTilUtfoerende`.
+      assert scopes =~ "altinn:instances.read"
+      assert scopes =~ "altinn:instances.write"
+    end
+  end
+
   describe "admin_scopes/0" do
     test "returns the admin scopes" do
       scopes = Maskinporten.admin_scopes()

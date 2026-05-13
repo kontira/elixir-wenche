@@ -42,8 +42,13 @@ defmodule Wenche.Maskinporten do
   # Scope for aksjonærregisteroppgave submission directly to SKD's API
   @skd_aksjonaer_scope "skatteetaten:innrapporteringaksjonaerregisteroppgave"
 
-  # Scope for skattemeldingen (tax return) submission
-  @skattemelding_scope "skatteetaten:formueinntekt/skattemelding"
+  # Scopes for skattemeldingen (tax return): direct SKD API + Altinn 3 instances.
+  # Both Altinn scopes are required so Skatteetaten can resolve the systemuser →
+  # executor trace via Altinn ("spor til utførende"); without them SKD rejects
+  # /valider and /innsendelse with `innkommendeForespoerselManglerSporTilUtfoerende`.
+  # Mirrors the Python reference (olefredrik/Wenche, auth.py:54-57).
+  @skattemelding_scope "skatteetaten:formueinntekt/skattemelding " <>
+                         "altinn:instances.read altinn:instances.write"
 
   @doc """
   Obtains an Altinn platform token by:
