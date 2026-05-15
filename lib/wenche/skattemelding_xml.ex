@@ -338,8 +338,13 @@ defmodule Wenche.SkattemeldingXml do
   defp wrap_aksjeklasse(nil), do: ""
   defp wrap_aksjeklasse(""), do: ""
 
+  # SKD's "aksjeklasse" kodeliste is case-sensitive lowercase
+  # (see Skatteetaten/skattemeldingen/src/resources/kodeliste/aksjeklasse.xml —
+  # values: alle, ordinaer, a..j, preferanse, ekstraordinaer). Submitting
+  # "B" instead of "b" gets rejected with UgyldigKodelisteverdi at the
+  # /valider step, so normalize here.
   defp wrap_aksjeklasse(value),
-    do: "<aksjeklasse><aksjeklasse>#{escape(value)}</aksjeklasse></aksjeklasse>"
+    do: "<aksjeklasse><aksjeklasse>#{escape(String.downcase(value))}</aksjeklasse></aksjeklasse>"
 
   defp wrap_beloep_heltall(_tag, nil), do: ""
   defp wrap_beloep_heltall(_tag, 0), do: ""

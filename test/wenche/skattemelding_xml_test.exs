@@ -173,7 +173,9 @@ defmodule Wenche.SkattemeldingXmlTest do
       assert xml =~
                "<erOmfattetAvFritaksmetoden><boolsk>true</boolsk></erOmfattetAvFritaksmetoden>"
 
-      assert xml =~ "<aksjeklasse><aksjeklasse>B</aksjeklasse></aksjeklasse>"
+      # Input "B" is normalized to "b" — SKD's aksjeklasse kodeliste is
+      # lowercase-only and would reject "B" with UgyldigKodelisteverdi.
+      assert xml =~ "<aksjeklasse><aksjeklasse>b</aksjeklasse></aksjeklasse>"
       assert xml =~ "<utbytte><beloepSomHeltall>50429</beloepSomHeltall></utbytte>"
 
       assert xml =~
@@ -304,6 +306,24 @@ defmodule Wenche.SkattemeldingXmlTest do
                        %{type: :ukjent}
                      ])
                    end
+    end
+
+    test "lowercases aksjeklasse so it matches SKD's case-sensitive kodeliste" do
+      for {input, expected} <- [
+            {"A", "a"},
+            {"B", "b"},
+            {"Ordinaer", "ordinaer"},
+            {"PREFERANSE", "preferanse"},
+            {"a", "a"}
+          ] do
+        xml =
+          SXML.generer_spesifikasjon_av_forhold_relevante_for_beskatning([
+            %{type: :aksje_i_aksjonaerregisteret, aksjeklasse: input}
+          ])
+
+        assert xml =~ "<aksjeklasse><aksjeklasse>#{expected}</aksjeklasse></aksjeklasse>",
+               "expected #{inspect(input)} to be normalized to #{inspect(expected)} in #{xml}"
+      end
     end
   end
 
