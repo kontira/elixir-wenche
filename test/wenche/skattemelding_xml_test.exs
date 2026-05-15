@@ -296,9 +296,14 @@ defmodule Wenche.SkattemeldingXmlTest do
       _ = a_id
     end
 
-    test "skips unknown :type silently" do
-      assert SXML.generer_spesifikasjon_av_forhold_relevante_for_beskatning([%{type: :ukjent}]) ==
-               ""
+    test "raises on unknown :type — better loud than a silently dropped holding" do
+      assert_raise ArgumentError,
+                   ~r/unsupported aksjespesifikasjon :type — :ukjent/,
+                   fn ->
+                     SXML.generer_spesifikasjon_av_forhold_relevante_for_beskatning([
+                       %{type: :ukjent}
+                     ])
+                   end
     end
   end
 

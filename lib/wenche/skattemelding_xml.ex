@@ -283,7 +283,12 @@ defmodule Wenche.SkattemeldingXml do
       "\n    </verdipapirfond>"
   end
 
-  defp forekomst(_, _), do: ""
+  defp forekomst(%{type: type}, _idx) do
+    raise ArgumentError,
+          "unsupported aksjespesifikasjon :type — #{inspect(type)}. " <>
+            "Skattemelding XML can only emit :aksje_i_aksjonaerregisteret, " <>
+            ":aksje_ikke_i_aksjonaerregisteret, or :verdipapirfond."
+  end
 
   defp wrap_navn(_tag, nil), do: ""
   defp wrap_navn(_tag, ""), do: ""
