@@ -591,6 +591,50 @@ defmodule Wenche.SkattemeldingXmlTest do
       refute xml =~ "forskjellMellomRegnskapsmessigOgSkattemessigVerdi"
       refute xml =~ "permanentForskjell"
     end
+
+    test "floors skattepliktigDelAvUtbytterOgUtdelinger (3 % addback) per § 2-38 (6)" do
+      # The 3 % addback under skatteloven § 2-38 (6) is taxpayer-favorable
+      # rounded down. 50_429 × 0.03 = 1_512.87 must serialize as 1_512, not
+      # 1_513 (which standard half-up would give). Other permanent forskjeller
+      # still use half-up; only this specific tillegg floors.
+      treprosent = Decimal.mult(Decimal.new("50429"), Decimal.new("0.03"))
+
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap(),
+          permanent_forskjeller: [
+            %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: Decimal.new("50429")},
+            %{type: :skattepliktigDelAvUtbytterOgUtdelinger, beloep: treprosent},
+            %{
+              type: :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter,
+              beloep: Decimal.new("71")
+            },
+            %{
+              type: :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter,
+              beloep: Decimal.new("367")
+            }
+          ]
+        )
+
+      assert xml =~ ~r{skattepliktigDelAvUtbytterOgUtdelinger.*?<beloep>1512</beloep>}s
+      refute xml =~ ~s(<beloep>1513</beloep>)
+    end
+
+    test "non-3% permanent forskjeller still round half-up" do
+      # Sanity check that the per-type rounding mode only affects
+      # skattepliktigDelAvUtbytterOgUtdelinger. A 100.5 gevinst should still
+      # round half-up to 101, not floor to 100.
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap(),
+          permanent_forskjeller: [
+            %{
+              type: :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter,
+              beloep: Decimal.new("100.5")
+            }
+          ]
+        )
+
+      assert xml =~ ~r{regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter.*?<beloep>101</beloep>}s
+    end
   end
 
   describe "generer_request_xml/3" do

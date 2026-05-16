@@ -449,12 +449,22 @@ defmodule Wenche.SkattemeldingXml do
     end
   end
 
-  defp normalize_permanent_forskjell(%{beloep: b} = entry) do
-    %{entry | beloep: beloep_to_int(b)}
+  defp normalize_permanent_forskjell(%{type: type, beloep: b} = entry) do
+    %{entry | beloep: beloep_to_int(b, rounding_mode(type))}
   end
 
-  defp beloep_to_int(%Decimal{} = d), do: d |> Decimal.round(0, :half_up) |> Decimal.to_integer()
-  defp beloep_to_int(n) when is_integer(n), do: n
+  # The 3 % addback under skatteloven § 2-38 (6) is a tillegg to skattepliktig
+  # inntekt. Rounding it down (taxpayer-favorable) is the convention used by
+  # the SKD veiledning and by reference implementations such as Fiken.
+  # Other permanent forskjeller use standard half-up rounding.
+  defp rounding_mode(:skattepliktigDelAvUtbytterOgUtdelinger), do: :floor
+  defp rounding_mode("skattepliktigDelAvUtbytterOgUtdelinger"), do: :floor
+  defp rounding_mode(_), do: :half_up
+
+  defp beloep_to_int(%Decimal{} = d, mode),
+    do: d |> Decimal.round(0, mode) |> Decimal.to_integer()
+
+  defp beloep_to_int(n, _mode) when is_integer(n), do: n
 
   defp permanent_forskjell(%{type: type, beloep: beloep} = entry, idx)
        when is_atom(type) or is_binary(type) do
