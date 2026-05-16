@@ -213,6 +213,39 @@ defmodule Wenche.BrgXmlTest do
       assert xml =~ "<egenkapitalAapningsbalanse>"
       assert xml =~ "<egenkapitalAvslutningsbalanse>"
     end
+
+    test "sumEgenkapitalGjeld honors sum_override on EgenkapitalOgGjeld" do
+      # Real-world case: a -1 kr supplier-overpayment liability makes
+      # raw EK (60_395) + raw gjeld (-1) = 60_394, which does not equal
+      # sum_eiendeler (60_395). Setting sum_override on the parent forces
+      # the grand total to the rounded-once eiendeler figure so the
+      # balance sheet stays self-consistent.
+      regnskap = %{
+        sample_regnskap()
+        | balanse: %Balanse{
+            eiendeler: %Eiendeler{
+              anleggsmidler: %Anleggsmidler{andre_aksjer: 4_800, sum_override: 4_800},
+              omloepmidler: %Omloepmidler{bankinnskudd: 55_595, sum_override: 55_595},
+              sum_override: 60_395
+            },
+            egenkapital_og_gjeld: %EgenkapitalOgGjeld{
+              egenkapital: %Egenkapital{
+                aksjekapital: 30_000,
+                annen_egenkapital: 30_395,
+                sum_override: 60_395
+              },
+              langsiktig_gjeld: %LangsiktigGjeld{sum_override: 0},
+              kortsiktig_gjeld: %KortsiktigGjeld{leverandoergjeld: -1, sum_override: -1},
+              sum_override: 60_395
+            }
+          }
+      }
+
+      xml = BrgXml.generer_underskjema(regnskap)
+
+      assert xml =~ ~s(<aarets orid="251">60395</aarets>)
+      refute xml =~ ~s(<aarets orid="251">60394</aarets>)
+    end
   end
 
   describe "altinnRowId is NOT emitted" do

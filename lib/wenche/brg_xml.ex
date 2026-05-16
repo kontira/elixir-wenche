@@ -18,6 +18,7 @@ defmodule Wenche.BrgXml do
     Driftsinntekter,
     Driftskostnader,
     Egenkapital,
+    EgenkapitalOgGjeld,
     Eiendeler,
     Finansposter,
     KortsiktigGjeld,
@@ -119,9 +120,10 @@ defmodule Wenche.BrgXml do
     ei = b.eiendeler
     am = ei.anleggsmidler
     om = ei.omloepmidler
-    ek = b.egenkapital_og_gjeld.egenkapital
-    lg = b.egenkapital_og_gjeld.langsiktig_gjeld
-    kg = b.egenkapital_og_gjeld.kortsiktig_gjeld
+    eog = b.egenkapital_og_gjeld
+    ek = eog.egenkapital
+    lg = eog.langsiktig_gjeld
+    kg = eog.kortsiktig_gjeld
 
     # Prior year
     fdi = fr.driftsinntekter
@@ -130,9 +132,10 @@ defmodule Wenche.BrgXml do
     fei = fb.eiendeler
     fam = fei.anleggsmidler
     fom = fei.omloepmidler
-    fek = fb.egenkapital_og_gjeld.egenkapital
-    flg = fb.egenkapital_og_gjeld.langsiktig_gjeld
-    fkg = fb.egenkapital_og_gjeld.kortsiktig_gjeld
+    feog = fb.egenkapital_og_gjeld
+    fek = feog.egenkapital
+    flg = feog.langsiktig_gjeld
+    fkg = feog.kortsiktig_gjeld
 
     netto_finans = Finansposter.sum_inntekter(fp) - Finansposter.sum_kostnader(fp)
     sum_gjeld = LangsiktigGjeld.sum(lg) + KortsiktigGjeld.sum(kg)
@@ -273,8 +276,8 @@ defmodule Wenche.BrgXml do
 
         <balanseEgenkapitalGjeld>
           <sumEgenkapitalGjeld>
-            <aarets orid="251">#{Egenkapital.sum(ek) + sum_gjeld}</aarets>
-            <fjoraarets orid="7185">#{Egenkapital.sum(fek) + LangsiktigGjeld.sum(flg) + KortsiktigGjeld.sum(fkg)}</fjoraarets>
+            <aarets orid="251">#{EgenkapitalOgGjeld.sum(eog)}</aarets>
+            <fjoraarets orid="7185">#{EgenkapitalOgGjeld.sum(feog)}</fjoraarets>
           </sumEgenkapitalGjeld>
           <balanseEgenkapitalInnskuttOpptjentEgenkapital>
             <innskuttEgenkapital>
