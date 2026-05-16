@@ -155,23 +155,16 @@ defmodule Wenche.Skattemelding do
          utbytte,
          andre_finansinntekter,
          fin_kostnader,
-         %SkattemeldingKonfig{permanent_forskjeller: pf} = konfig
+         %SkattemeldingKonfig{permanent_forskjeller: pf} = _konfig
        )
        when is_list(pf) do
     regnskapsmessig =
       driftsresultat + utbytte + andre_finansinntekter - fin_kostnader
 
-    # Prefer the caller-supplied total when present: the breakdown's integer
-    # components are rounded per-line for XML reporting, so summing them
-    # drops the cumulative fractional cents. A caller that holds the raw
-    # decimals can round once and pass the corrected total here.
-    adjustment =
-      case konfig.permanent_forskjell_total do
-        nil -> permanent_forskjell_adjustment(pf)
-        total when is_integer(total) -> total
-      end
-
-    {regnskapsmessig + adjustment, 0, 0}
+    # Sum each beloep as Decimal with the right sign per type, then round
+    # ONCE :half_up to integer. Per-line rounding would drop the cumulative
+    # fractional cents that Skatteetaten / Fiken pick up by rounding once.
+    {regnskapsmessig + permanent_forskjell_adjustment(pf), 0, 0}
   end
 
   defp compute_skattepliktig_brutto(
@@ -191,17 +184,35 @@ defmodule Wenche.Skattemelding do
 
   # Permanent forskjeller adjust regnskapsmessig → skattemessig.
   # Reversals (utbytte, gevinst) reduce inntekt; add-backs (3 %, tap) raise it.
+  # Sums in Decimal and rounds the total :half_up once so per-line rounding
+  # noise doesn't drift the brutto by 1 kr.
   defp permanent_forskjell_adjustment(pf) do
-    Enum.reduce(pf, 0, fn
-      %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: b}, acc -> acc - b
-      %{type: :skattepliktigDelAvUtbytterOgUtdelinger, beloep: b}, acc -> acc + b
-      %{type: :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter, beloep: b}, acc ->
-        acc - b
-      %{type: :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter, beloep: b}, acc ->
-        acc + b
-      _, acc -> acc
+    pf
+    |> Enum.reduce(Decimal.new(0), fn entry, acc ->
+      case entry do
+        %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: b} ->
+          Decimal.sub(acc, to_decimal(b))
+
+        %{type: :skattepliktigDelAvUtbytterOgUtdelinger, beloep: b} ->
+          Decimal.add(acc, to_decimal(b))
+
+        %{type: :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter, beloep: b} ->
+          Decimal.sub(acc, to_decimal(b))
+
+        %{type: :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter, beloep: b} ->
+          Decimal.add(acc, to_decimal(b))
+
+        _ ->
+          acc
+      end
     end)
+    |> Decimal.round(0, :half_up)
+    |> Decimal.to_integer()
   end
+
+  defp to_decimal(%Decimal{} = d), do: d
+  defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
+  defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
 
   defp beregn_fritaksmetoden(konfig, utbytte)
        when konfig.anvend_fritaksmetoden and utbytte > 0 do

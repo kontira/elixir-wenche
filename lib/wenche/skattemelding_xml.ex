@@ -420,19 +420,22 @@ defmodule Wenche.SkattemeldingXml do
         (0833, fradrag),
       `:regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter`
         (0633, tillegg).
-    * `:beloep` — integer NOK (always positive; the kodeliste's
-      `kategori` determines whether SKD treats it as tillegg or fradrag).
+    * `:beloep` — `Decimal.t` or integer NOK (always positive; the
+      kodeliste's `kategori` determines whether SKD treats it as
+      tillegg or fradrag). Decimal beloep is rounded per line with
+      `:half_up` for emission as an integer.
     * `:beskrivelse` — optional free text.
 
-  Entries with `:beloep <= 0` are dropped — SKD rejects zero-valued
-  permanent forskjeller as invalid.
+  Entries with `:beloep <= 0` (after rounding) are dropped — SKD
+  rejects zero-valued permanent forskjeller as invalid.
   """
   def generer_permanent_forskjell_block([]), do: ""
 
   def generer_permanent_forskjell_block(entries) when is_list(entries) do
     forekomster =
       entries
-      |> Enum.filter(&positive_beloep?/1)
+      |> Enum.map(&normalize_permanent_forskjell/1)
+      |> Enum.filter(&(&1.beloep > 0))
       |> Enum.with_index(1)
       |> Enum.map(fn {entry, idx} -> permanent_forskjell(entry, idx) end)
       |> Enum.join("\n")
@@ -446,8 +449,12 @@ defmodule Wenche.SkattemeldingXml do
     end
   end
 
-  defp positive_beloep?(%{beloep: b}) when is_integer(b), do: b > 0
-  defp positive_beloep?(_), do: false
+  defp normalize_permanent_forskjell(%{beloep: b} = entry) do
+    %{entry | beloep: beloep_to_int(b)}
+  end
+
+  defp beloep_to_int(%Decimal{} = d), do: d |> Decimal.round(0, :half_up) |> Decimal.to_integer()
+  defp beloep_to_int(n) when is_integer(n), do: n
 
   defp permanent_forskjell(%{type: type, beloep: beloep} = entry, idx)
        when is_atom(type) or is_binary(type) do
