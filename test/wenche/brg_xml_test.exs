@@ -227,8 +227,11 @@ defmodule Wenche.BrgXmlTest do
     end
   end
 
-  describe "XSD validation (requires xmllint and brreg/docs XSDs at /tmp/brreg-docs)" do
-    @xsd_dir "/tmp/brreg-docs/content/apidokumentasjon/regnskapsregisteret/dokumentasjon-datamodeller-og-designmaler/RR-0002-Vanlig"
+  describe "XSD validation (requires xmllint)" do
+    # XSDs are shipped in priv/xsd/brreg/RR-0002 — source is brreg/docs on
+    # github (Brønnøysundregistrene's public dokumentasjon repo). No external
+    # mounts needed; xmllint is the only environmental dependency.
+    @xsd_dir Path.expand("../../priv/xsd/brreg/RR-0002", __DIR__)
 
     @tag :xsd
     test "hovedskjema validates against RR-0002 (1266) XSD" do

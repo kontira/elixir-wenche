@@ -380,6 +380,60 @@ defmodule Wenche.SkattemeldingXmlTest do
       assert xml =~ "<skalBekreftesAvRevisor>true</skalBekreftesAvRevisor>"
     end
 
+    test "kontaktperson option emits <kontaktperson> inside <virksomhet> with required <navn>" do
+      kontaktperson = %{
+        navn: "Jarl André Hübenthal",
+        telefonnummer: "+47 12345678",
+        epostadresse: "jarl@example.com"
+      }
+
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(
+          sample_regnskap(),
+          kontaktperson: kontaktperson
+        )
+
+      # Block exists with navn first (XSD sequence order).
+      assert xml =~ "<kontaktperson>"
+      assert xml =~ "<navn>Jarl André Hübenthal</navn>"
+      assert xml =~ "<telefonnummer>+47 12345678</telefonnummer>"
+      assert xml =~ "<epostadresse>jarl@example.com</epostadresse>"
+
+      # Sits inside <virksomhet>, after regeltypeForAarsregnskap, before </virksomhet>.
+      regel_idx = :binary.match(xml, "</regeltypeForAarsregnskap>") |> elem(0)
+      kontakt_idx = :binary.match(xml, "<kontaktperson>") |> elem(0)
+      close_idx = :binary.match(xml, "</virksomhet>") |> elem(0)
+      assert regel_idx < kontakt_idx
+      assert kontakt_idx < close_idx
+    end
+
+    test "kontaktperson omitted when option is nil (default)" do
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+      refute xml =~ "<kontaktperson>"
+    end
+
+    test "kontaktperson omitted when :navn is blank — never emits a partial block" do
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(
+          sample_regnskap(),
+          kontaktperson: %{navn: "", telefonnummer: "+47 99999999"}
+        )
+
+      refute xml =~ "<kontaktperson>"
+      refute xml =~ "+47 99999999"
+    end
+
+    test "kontaktperson XML-escapes special characters in user input" do
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(
+          sample_regnskap(),
+          kontaktperson: %{navn: "Jarl & Co <AS>", epostadresse: "a&b@c.no"}
+        )
+
+      assert xml =~ "<navn>Jarl &amp; Co &lt;AS&gt;</navn>"
+      assert xml =~ "<epostadresse>a&amp;b@c.no</epostadresse>"
+    end
+
     test "annenDriftskostnad children are <kostnad> not <inntekt>" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
