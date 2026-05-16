@@ -367,6 +367,13 @@ defmodule Wenche.SkattemeldingXml do
     "tilbakeføring av utbytte" / "treprosent" / "gevinst-fradrag" /
     "tap-tillegg" declarations, SKD taxes the full regnskapsmessig income.
     See `generer_permanent_forskjell_block/1` for the expected shape.
+  - `:kontaktperson` — map with `:navn` (required), `:telefonnummer`
+    (optional), `:epostadresse` (optional). Emitted as `<kontaktperson>`
+    inside `<virksomhet>`. SKD's post-acceptance audit appears to read
+    this as the "spor til utførende" (named human to contact about the
+    submission); omitting it has been observed to cause SKD to return
+    `innkommendeForespoerselManglerSporTilUtfoerende` in the
+    tilbakemelding after a successful Altinn signing.
   """
   def generer_naeringsspesifikasjon_xml(%Aarsregnskap{} = regnskap, opts \\ []) do
     partsnummer = Keyword.get(opts, :partsnummer, regnskap.selskap.org_nummer)
@@ -374,6 +381,7 @@ defmodule Wenche.SkattemeldingXml do
     r = regnskap.resultatregnskap
     b = regnskap.balanse
     skal_revisor = if regnskap.revideres, do: "true", else: "false"
+    kontaktperson = Keyword.get(opts, :kontaktperson)
 
     permanent_forskjeller =
       opts
@@ -389,7 +397,7 @@ defmodule Wenche.SkattemeldingXml do
         resultatregnskap_block(r),
         balanseregnskap_block(b),
         permanent_forskjeller,
-        virksomhet_block(aar),
+        virksomhet_block(aar, kontaktperson),
         "  <skalBekreftesAvRevisor>#{skal_revisor}</skalBekreftesAvRevisor>",
         "</naeringsspesifikasjon>"
       ]
@@ -738,30 +746,64 @@ defmodule Wenche.SkattemeldingXml do
     acc ++ ["      <egenkapital>\n#{Enum.join(forekomster, "\n")}\n      </egenkapital>"]
   end
 
-  defp virksomhet_block(aar) do
-    """
-      <virksomhet>
-        <regnskapspliktstype>
-          <regnskapspliktstype>fullRegnskapsplikt</regnskapspliktstype>
-        </regnskapspliktstype>
-        <regnskapsperiode>
-          <start>
-            <dato>#{aar}-01-01</dato>
-          </start>
-          <slutt>
-            <dato>#{aar}-12-31</dato>
-          </slutt>
-        </regnskapsperiode>
-        <virksomhetstype>
-          <virksomhetstype>oevrigSelskap</virksomhetstype>
-        </virksomhetstype>
-        <regeltypeForAarsregnskap>
-          <regeltypeForAarsregnskap>regnskapslovensReglerForSmaaForetak</regeltypeForAarsregnskap>
-        </regeltypeForAarsregnskap>
-      </virksomhet>
-    """
+  defp virksomhet_block(aar, kontaktperson) do
+    inner =
+      [
+        "    <regnskapspliktstype>",
+        "      <regnskapspliktstype>fullRegnskapsplikt</regnskapspliktstype>",
+        "    </regnskapspliktstype>",
+        "    <regnskapsperiode>",
+        "      <start>",
+        "        <dato>#{aar}-01-01</dato>",
+        "      </start>",
+        "      <slutt>",
+        "        <dato>#{aar}-12-31</dato>",
+        "      </slutt>",
+        "    </regnskapsperiode>",
+        "    <virksomhetstype>",
+        "      <virksomhetstype>oevrigSelskap</virksomhetstype>",
+        "    </virksomhetstype>",
+        "    <regeltypeForAarsregnskap>",
+        "      <regeltypeForAarsregnskap>regnskapslovensReglerForSmaaForetak</regeltypeForAarsregnskap>",
+        "    </regeltypeForAarsregnskap>",
+        kontaktperson_block(kontaktperson)
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    ("  <virksomhet>\n" <> inner <> "\n  </virksomhet>")
     |> String.trim_trailing()
   end
+
+  # Emits the optional `<kontaktperson>` element on `<virksomhet>`. Returns ""
+  # when the input is nil or has no usable `:navn` — we never emit a partial
+  # block. XSD `Kontaktinformasjon` requires `<navn>` first and accepts
+  # `<telefonnummer>`, `<epostadresse>`, `<mobiltelefonummer>`, `<smsNummer>`
+  # in that order. Each is a simple string type.
+  defp kontaktperson_block(nil), do: ""
+  defp kontaktperson_block(%{navn: nil}), do: ""
+  defp kontaktperson_block(%{navn: ""}), do: ""
+
+  defp kontaktperson_block(%{navn: navn} = k) do
+    children =
+      [
+        "      <navn>#{escape(navn)}</navn>",
+        wrap_simple("telefonnummer", Map.get(k, :telefonnummer)),
+        wrap_simple("epostadresse", Map.get(k, :epostadresse)),
+        wrap_simple("mobiltelefonummer", Map.get(k, :mobiltelefonummer)),
+        wrap_simple("smsNummer", Map.get(k, :sms_nummer))
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    "    <kontaktperson>\n" <> children <> "\n    </kontaktperson>"
+  end
+
+  defp kontaktperson_block(_), do: ""
+
+  defp wrap_simple(_tag, nil), do: ""
+  defp wrap_simple(_tag, ""), do: ""
+  defp wrap_simple(tag, value), do: "      <#{tag}>#{escape(value)}</#{tag}>"
 
   # ── Request envelope (v2) ───────────────────────────────────────────
 
