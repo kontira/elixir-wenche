@@ -372,29 +372,32 @@ defmodule Wenche.Models do
               eierandel_datterselskap: 100,
               # When set, beregn/2 uses this list as the authoritative permanent
               # forskjeller — bypasses the global eierandel_datterselskap heuristic.
-              # Shape: [%{type: atom, beloep: integer}], same as what's emitted
-              # in the naeringsspesifikasjon XML. Supported types:
+              #
+              # Shape: [%{type: atom, beloep: Decimal.t | integer}]
+              #
+              # Prefer Decimal beloep: skattepliktig brutto sums them with the
+              # correct sign per type and rounds ONCE (:half_up), which matches
+              # how Skatteetaten / Fiken compute brutto. Integer beloep is
+              # accepted for backwards compatibility but loses the cumulative
+              # fractional cents that decimal sums would round up.
+              #
+              # XML emission rounds each beloep per line (:half_up) so SKD
+              # receives integer NOK as required by the kodeliste.
+              #
+              # Supported types:
               #   :tilbakefoeringAvInntektsfoertUtbytte  (subtract from inntekt)
               #   :skattepliktigDelAvUtbytterOgUtdelinger (add to inntekt)
               #   :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter (subtract)
               #   :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter (add)
-              permanent_forskjeller: nil,
-              # Optional override for the total permanent-forskjell amount used
-              # when computing skattepliktig brutto. When set, beregn/2 uses
-              # this integer instead of summing :permanent_forskjeller items.
-              # Lets callers compute the total from full-precision decimals
-              # and round once (matching Skatteetaten / Fiken), while still
-              # emitting per-line integer breakdowns in the XML.
-              permanent_forskjell_total: nil
+              permanent_forskjeller: nil
 
-    @type permanent_forskjell :: %{type: atom(), beloep: integer()}
+    @type permanent_forskjell :: %{type: atom(), beloep: Decimal.t() | integer()}
 
     @type t :: %__MODULE__{
             underskudd_til_fremfoering: integer(),
             anvend_fritaksmetoden: boolean(),
             eierandel_datterselskap: integer(),
-            permanent_forskjeller: [permanent_forskjell()] | nil,
-            permanent_forskjell_total: integer() | nil
+            permanent_forskjeller: [permanent_forskjell()] | nil
           }
   end
 end

@@ -239,12 +239,12 @@ defmodule Wenche.SkattemeldingTest do
       assert result.rf_1028.underskudd_til_fremfoering == 5_325
     end
 
-    test ":permanent_forskjell_total overrides the integer sum of the breakdown" do
-      # Real-world rounding: pieces rounded for SKD line-item reporting (50 429,
-      # 1 513, 71, 367) sum to -48 620, but the underlying decimals sum to
-      # -48 620.6949 → -48 621 when rounded once. Callers that hold the raw
-      # decimals pass the corrected total via :permanent_forskjell_total so
-      # brutto matches what Skatteetaten / Fiken compute.
+    test "Decimal beloep in :permanent_forskjeller rounds the sum once for brutto" do
+      # Real-world rounding (Hübenthal Invest 2025): rounded per line the
+      # pieces are 50 429 / 1 513 / 71 / 367 and the integer sum is -48 620.
+      # The raw decimals sum to -48 620.6949 → -48 621 when rounded once,
+      # which is what Skatteetaten / Fiken compute. Pass Decimal beloep and
+      # beregn/2 sums-then-rounds.
       regnskap = %{
         sample_regnskap()
         | resultatregnskap: %Resultatregnskap{
@@ -258,29 +258,40 @@ defmodule Wenche.SkattemeldingTest do
           }
       }
 
-      breakdown = [
-        %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: 50_429},
-        %{type: :skattepliktigDelAvUtbytterOgUtdelinger, beloep: 1_513},
-        %{type: :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter, beloep: 71},
-        %{type: :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter, beloep: 367}
+      breakdown_decimals = [
+        %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: Decimal.new("50429.17")},
+        %{type: :skattepliktigDelAvUtbytterOgUtdelinger, beloep: Decimal.new("1512.8751")},
+        %{
+          type: :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter,
+          beloep: Decimal.new("71.22")
+        },
+        %{
+          type: :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter,
+          beloep: Decimal.new("366.82")
+        }
       ]
 
-      # Without override: regnskapsmessig 43 661 + (-50 429 + 1 513 - 71 + 367)
-      # = 43 661 - 48 620 = -4 959.
-      without_override =
-        Skattemelding.beregn(regnskap, %SkattemeldingKonfig{permanent_forskjeller: breakdown})
-
-      assert without_override.rf_1028.skattepliktig_inntekt_brutto == -4_959
-
-      # With override: regnskapsmessig 43 661 + (-48 621) = -4 960.
-      with_override =
+      result =
         Skattemelding.beregn(regnskap, %SkattemeldingKonfig{
-          permanent_forskjeller: breakdown,
-          permanent_forskjell_total: -48_621
+          permanent_forskjeller: breakdown_decimals
         })
 
-      assert with_override.rf_1028.skattepliktig_inntekt_brutto == -4_960
-      assert with_override.rf_1028.underskudd_til_fremfoering == 4_960
+      # regnskapsmessig 43 661 + round_half_up(-48 620.6949) = 43 661 - 48 621 = -4 960
+      assert result.rf_1028.skattepliktig_inntekt_brutto == -4_960
+      assert result.rf_1028.underskudd_til_fremfoering == 4_960
+
+      # The legacy integer path still works (back-compat with callers that
+      # pre-round) but loses the fractional cents: -50 429 + 1 513 - 71 + 367
+      # = -48 620, brutto = -4 959.
+      breakdown_ints =
+        Enum.map(breakdown_decimals, fn entry ->
+          %{entry | beloep: Decimal.round(entry.beloep, 0, :half_up) |> Decimal.to_integer()}
+        end)
+
+      int_result =
+        Skattemelding.beregn(regnskap, %SkattemeldingKonfig{permanent_forskjeller: breakdown_ints})
+
+      assert int_result.rf_1028.skattepliktig_inntekt_brutto == -4_959
     end
 
     test "applies loss carryforward deduction" do
