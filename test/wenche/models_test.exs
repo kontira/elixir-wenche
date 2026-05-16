@@ -247,4 +247,61 @@ defmodule Wenche.ModelsTest do
       assert konfig.eierandel_datterselskap == 100
     end
   end
+
+  describe "sum_override on balanse models" do
+    # When the caller holds raw decimal source data, mechanically summing
+    # rounded integer children can drift by ±1 kr from round-once-on-raw.
+    # `:sum_override` lets the caller set the honest grand total.
+    # Without an override the mechanical sum is used — back-compatible.
+
+    test "Eiendeler.sum returns mechanical sum when no override" do
+      e = %Eiendeler{
+        anleggsmidler: %Anleggsmidler{aksjer_i_datterselskap: 4_800},
+        omloepmidler: %Omloepmidler{bankinnskudd: 55_594}
+      }
+
+      assert Eiendeler.sum(e) == 60_394
+    end
+
+    test "Eiendeler.sum returns override when set" do
+      e = %Eiendeler{
+        anleggsmidler: %Anleggsmidler{aksjer_i_datterselskap: 4_800},
+        omloepmidler: %Omloepmidler{bankinnskudd: 55_594},
+        sum_override: 60_395
+      }
+
+      assert Eiendeler.sum(e) == 60_395
+    end
+
+    test "KortsiktigGjeld.sum returns mechanical sum (matches Fiken: -1 + 0 + 0 = -1)" do
+      k = %KortsiktigGjeld{
+        leverandoergjeld: -1,
+        skyldige_offentlige_avgifter: 0,
+        annen_kortsiktig_gjeld: 0
+      }
+
+      assert KortsiktigGjeld.sum(k) == -1
+    end
+
+    test "EgenkapitalOgGjeld.sum returns override over child sum (Fiken parity case)" do
+      # Real Hübenthal 2025: 30 000 + 30 395 + (-1) mechanically = 60 394,
+      # but round-once raw = 60 395. The override carries the honest total.
+      eg = %EgenkapitalOgGjeld{
+        egenkapital: %Egenkapital{aksjekapital: 30_000, annen_egenkapital: 30_395},
+        kortsiktig_gjeld: %KortsiktigGjeld{leverandoergjeld: -1},
+        sum_override: 60_395
+      }
+
+      assert EgenkapitalOgGjeld.sum(eg) == 60_395
+    end
+
+    test "EgenkapitalOgGjeld.sum falls back to mechanical without override" do
+      eg = %EgenkapitalOgGjeld{
+        egenkapital: %Egenkapital{aksjekapital: 30_000, annen_egenkapital: 30_395},
+        kortsiktig_gjeld: %KortsiktigGjeld{leverandoergjeld: -1}
+      }
+
+      assert EgenkapitalOgGjeld.sum(eg) == 60_394
+    end
+  end
 end

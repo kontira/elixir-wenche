@@ -117,15 +117,28 @@ defmodule Wenche.Models do
   # Balance sheet components
   # ---------------------------------------------------------------------------
 
+  # Every balance-sheet section carries an optional `:sum_override`. When
+  # set (integer), `sum/1` returns it verbatim instead of mechanically
+  # adding the children. Callers that hold the raw decimal source data
+  # use this to keep the displayed/emitted grand total = round-once of
+  # the raw decimal sum, while individual lines remain rounded to their
+  # own honest values. Without an override the historic mechanical sum
+  # is used, so existing callers are unaffected.
   defmodule Anleggsmidler do
     @moduledoc "Non-current assets."
-    defstruct aksjer_i_datterselskap: 0, andre_aksjer: 0, langsiktige_fordringer: 0
+    defstruct aksjer_i_datterselskap: 0,
+              andre_aksjer: 0,
+              langsiktige_fordringer: 0,
+              sum_override: nil
 
     @type t :: %__MODULE__{
             aksjer_i_datterselskap: integer(),
             andre_aksjer: integer(),
-            langsiktige_fordringer: integer()
+            langsiktige_fordringer: integer(),
+            sum_override: integer() | nil
           }
+
+    def sum(%__MODULE__{sum_override: o}) when is_integer(o), do: o
 
     def sum(%__MODULE__{} = a),
       do: a.aksjer_i_datterselskap + a.andre_aksjer + a.langsiktige_fordringer
@@ -133,13 +146,15 @@ defmodule Wenche.Models do
 
   defmodule Omloepmidler do
     @moduledoc "Current assets."
-    defstruct kortsiktige_fordringer: 0, bankinnskudd: 0
+    defstruct kortsiktige_fordringer: 0, bankinnskudd: 0, sum_override: nil
 
     @type t :: %__MODULE__{
             kortsiktige_fordringer: integer(),
-            bankinnskudd: integer()
+            bankinnskudd: integer(),
+            sum_override: integer() | nil
           }
 
+    def sum(%__MODULE__{sum_override: o}) when is_integer(o), do: o
     def sum(%__MODULE__{} = o), do: o.kortsiktige_fordringer + o.bankinnskudd
   end
 
@@ -147,12 +162,15 @@ defmodule Wenche.Models do
     @moduledoc "Assets."
     alias Wenche.Models.{Anleggsmidler, Omloepmidler}
 
-    defstruct anleggsmidler: %Anleggsmidler{}, omloepmidler: %Omloepmidler{}
+    defstruct anleggsmidler: %Anleggsmidler{}, omloepmidler: %Omloepmidler{}, sum_override: nil
 
     @type t :: %__MODULE__{
             anleggsmidler: Anleggsmidler.t(),
-            omloepmidler: Omloepmidler.t()
+            omloepmidler: Omloepmidler.t(),
+            sum_override: integer() | nil
           }
+
+    def sum(%__MODULE__{sum_override: o}) when is_integer(o), do: o
 
     def sum(%__MODULE__{} = e),
       do: Anleggsmidler.sum(e.anleggsmidler) + Omloepmidler.sum(e.omloepmidler)
@@ -160,38 +178,48 @@ defmodule Wenche.Models do
 
   defmodule Egenkapital do
     @moduledoc "Equity. annen_egenkapital can be negative for accumulated losses."
-    defstruct aksjekapital: 0, overkursfond: 0, annen_egenkapital: 0
+    defstruct aksjekapital: 0, overkursfond: 0, annen_egenkapital: 0, sum_override: nil
 
     @type t :: %__MODULE__{
             aksjekapital: integer(),
             overkursfond: integer(),
-            annen_egenkapital: integer()
+            annen_egenkapital: integer(),
+            sum_override: integer() | nil
           }
 
+    def sum(%__MODULE__{sum_override: o}) when is_integer(o), do: o
     def sum(%__MODULE__{} = e), do: e.aksjekapital + e.overkursfond + e.annen_egenkapital
   end
 
   defmodule LangsiktigGjeld do
     @moduledoc "Long-term liabilities."
-    defstruct laan_fra_aksjonaer: 0, andre_langsiktige_laan: 0
+    defstruct laan_fra_aksjonaer: 0, andre_langsiktige_laan: 0, sum_override: nil
 
     @type t :: %__MODULE__{
             laan_fra_aksjonaer: integer(),
-            andre_langsiktige_laan: integer()
+            andre_langsiktige_laan: integer(),
+            sum_override: integer() | nil
           }
 
+    def sum(%__MODULE__{sum_override: o}) when is_integer(o), do: o
     def sum(%__MODULE__{} = l), do: l.laan_fra_aksjonaer + l.andre_langsiktige_laan
   end
 
   defmodule KortsiktigGjeld do
     @moduledoc "Short-term liabilities."
-    defstruct leverandoergjeld: 0, skyldige_offentlige_avgifter: 0, annen_kortsiktig_gjeld: 0
+    defstruct leverandoergjeld: 0,
+              skyldige_offentlige_avgifter: 0,
+              annen_kortsiktig_gjeld: 0,
+              sum_override: nil
 
     @type t :: %__MODULE__{
             leverandoergjeld: integer(),
             skyldige_offentlige_avgifter: integer(),
-            annen_kortsiktig_gjeld: integer()
+            annen_kortsiktig_gjeld: integer(),
+            sum_override: integer() | nil
           }
+
+    def sum(%__MODULE__{sum_override: o}) when is_integer(o), do: o
 
     def sum(%__MODULE__{} = k),
       do: k.leverandoergjeld + k.skyldige_offentlige_avgifter + k.annen_kortsiktig_gjeld
@@ -203,13 +231,17 @@ defmodule Wenche.Models do
 
     defstruct egenkapital: %Egenkapital{},
               langsiktig_gjeld: %LangsiktigGjeld{},
-              kortsiktig_gjeld: %KortsiktigGjeld{}
+              kortsiktig_gjeld: %KortsiktigGjeld{},
+              sum_override: nil
 
     @type t :: %__MODULE__{
             egenkapital: Egenkapital.t(),
             langsiktig_gjeld: LangsiktigGjeld.t(),
-            kortsiktig_gjeld: KortsiktigGjeld.t()
+            kortsiktig_gjeld: KortsiktigGjeld.t(),
+            sum_override: integer() | nil
           }
+
+    def sum(%__MODULE__{sum_override: o}) when is_integer(o), do: o
 
     def sum(%__MODULE__{} = e) do
       Egenkapital.sum(e.egenkapital) +
