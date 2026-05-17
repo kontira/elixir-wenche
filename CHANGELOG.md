@@ -77,6 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wrong MVA-melding resource ID in system user rights.
 - `EgenkapitalOgGjeld.sum/1` is now honored by `sumEgenkapitalGjeld` in BRG XML
   (was inlining child sums and ignoring `:sum_override`).
+- `AltinnClient.legg_til_data_element/6` now passes `client.req_options` to
+  `Req.post` (was the only client function not honoring it, which blocked
+  end-to-end stubbing of MVA-melding submission).
 
 ### Removed
 

@@ -171,10 +171,12 @@ defmodule Wenche.AltinnClient do
 
     headers = [{"content-type", content_type} | auth_headers(client.token)]
 
-    case Req.post(url,
-           body: data,
-           headers: headers,
-           receive_timeout: 30_000
+    case Req.post(
+           url,
+           Keyword.merge(
+             [body: data, headers: headers, receive_timeout: 30_000],
+             client.req_options
+           )
          ) do
       {:ok, %Req.Response{status: status, body: body}} when status in [200, 201] ->
         {:ok, body}

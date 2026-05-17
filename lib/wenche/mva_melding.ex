@@ -33,13 +33,23 @@ defmodule Wenche.MvaMelding do
   @doc """
   Submits an MVA-melding to Skatteetaten via Altinn 3.
 
-  ## Steps
+  Mirrors the Skatteetaten reference flow documented at
+  https://skatteetaten.github.io/mva-meldingen/english/implementationguide/
+  (sequence diagram in github.com/Skatteetaten/mva-meldingen,
+  `docs/documentation/api/Mva-Melding-Innsending-Sekvensdiagram.txt`):
 
   1. Generate konvolutt (envelope) and melding XML
-  2. Create Altinn instance
-  3. Upload konvolutt (update existing data element)
-  4. Upload melding (add new data element)
-  5. Advance process twice (to signing)
+  2. `POST /instances`                            — create Altinn instance
+  3. `PUT  /data/{guid}` (`mvaMeldingInnsending`) — upload konvolutt
+  4. `POST /data?dataType=mvamelding`             — upload melding
+  5. `PUT  /process/next`  ("Fullfør Utfylling")  — utfylling   → bekreftelse
+  6. `PUT  /process/next`  ("Fullfør Innsending") — bekreftelse → tilbakemelding
+
+  Both `process/next` calls return 200; the second one's response is what
+  Skatteetaten's `betalingsinformasjon.xml` is generated from. We use
+  `fullfoor_instans/3` for both because Skatteetaten labels both transitions
+  as "Fullfør" steps in their documentation — `neste_prosesssteg/3` would
+  work identically (same endpoint, same accepted status codes for this app).
 
   To inspect the generated XML without submitting, call
   `Wenche.MvaMeldingXml.generer_konvolutt_xml/1` and
