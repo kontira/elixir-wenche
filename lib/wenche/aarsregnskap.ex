@@ -96,9 +96,9 @@ defmodule Wenche.Aarsregnskap do
   @doc """
   Submits the annual accounts to Brønnøysundregistrene via Altinn.
 
-  ## Options
-
-  - `:dry_run` — if true, writes XML files locally without sending to Altinn (default: false)
+  To inspect the generated XML without submitting, call
+  `Wenche.BrgXml.generer_hovedskjema/2` and `Wenche.BrgXml.generer_underskjema/1`
+  directly.
 
   Returns `{:ok, inbox_url}` or `{:error, reason}`.
   """
@@ -110,27 +110,12 @@ defmodule Wenche.Aarsregnskap do
   end
 
   defp do_send_inn(regnskap, client, opts) do
-    dry_run = Keyword.get(opts, :dry_run, false)
     brg_opts = Keyword.take(opts, [:system_navn])
     hovedskjema = BrgXml.generer_hovedskjema(regnskap, brg_opts)
     underskjema = BrgXml.generer_underskjema(regnskap)
     org = regnskap.selskap.org_nummer
-    aar = regnskap.regnskapsaar
 
-    if dry_run do
-      write_dry_run_files(aar, org, hovedskjema, underskjema)
-    else
-      submit_to_altinn(client, org, hovedskjema, underskjema)
-    end
-  end
-
-  defp write_dry_run_files(aar, org, hovedskjema, underskjema) do
-    hoved_fil = "aarsregnskap_#{aar}_#{org}_hovedskjema.xml"
-    under_fil = "aarsregnskap_#{aar}_#{org}_underskjema.xml"
-    File.write!(hoved_fil, hovedskjema)
-    File.write!(under_fil, underskjema)
-
-    {:ok, {:dry_run, hoved_fil, under_fil}}
+    submit_to_altinn(client, org, hovedskjema, underskjema)
   end
 
   defp submit_to_altinn(client, org, hovedskjema, underskjema) do

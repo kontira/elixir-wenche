@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Wenche.AltinnClient` — the previously-labeled "Legacy API compatibility"
+  block (`create_instance`, `update_data_element`, `complete_instance`,
+  `get_status`) is now documented as the **token-based convenience API**.
+  Both APIs are first-class: the struct-based functions
+  (`opprett_instans`, …) drive Wenche's own `send_inn` flows; the token-based
+  functions are the preferred surface for application callers that want to
+  drive the Altinn 3 instance lifecycle themselves without constructing a
+  client struct.
 - **3 % addback in `skattepliktigDelAvUtbytterOgUtdelinger` now floors** instead
   of `:half_up` rounding, per skatteloven § 2-38 (6) and the SKD veiledning
   convention used by reference implementations (Fiken).
@@ -78,6 +86,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   structured map suitable for any rendering target. The original Python
   CLI tool emitted a fixed text report; in the Elixir library this concern
   belongs to the caller.
+- **`:dry_run` option on `Aarsregnskap.send_inn/3`, `Skattemelding.send_inn/2`,
+  and `MvaMelding.send_inn/3`.** Previously, `dry_run: true` wrote XML
+  documents to the host's current working directory via `File.write!` with
+  synthesized filenames — a CLI ergonomic that web/embedded callers cannot
+  use safely. To inspect XML without submitting, call the underlying
+  generators directly: `Wenche.BrgXml.generer_hovedskjema/2` +
+  `generer_underskjema/1`, `Wenche.SkattemeldingXml.generer_skattemelding_xml/3`
+  + `generer_naeringsspesifikasjon_xml/2` + `generer_request_xml/3`, or
+  `Wenche.MvaMeldingXml.generer_konvolutt_xml/1` + `generer_melding_xml/1`.
 - The short-lived `:permanent_forskjell_total` override on `SkattemeldingKonfig`
   (introduced and removed within this release cycle; superseded by accepting
   `Decimal` `:beloep` in the per-line breakdown).

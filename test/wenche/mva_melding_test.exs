@@ -47,28 +47,4 @@ defmodule Wenche.MvaMeldingTest do
     end
   end
 
-  describe "send_inn/3 dry_run" do
-    test "writes XML files in dry_run mode" do
-      data = sample_mva_data()
-      client = Wenche.AltinnClient.new("token", env: "test")
-
-      assert {:ok, {:dry_run, konvolutt_file, melding_file}} =
-               MvaMelding.send_inn(data, client, dry_run: true)
-
-      assert File.exists?(konvolutt_file)
-      assert File.exists?(melding_file)
-
-      konvolutt = File.read!(konvolutt_file)
-      assert konvolutt =~ "mvaMeldingInnsending"
-      assert konvolutt =~ "912345678"
-
-      melding = File.read!(melding_file)
-      assert melding =~ "mvaMeldingDto"
-      assert melding =~ "912345678"
-
-      # Cleanup
-      File.rm(konvolutt_file)
-      File.rm(melding_file)
-    end
-  end
 end

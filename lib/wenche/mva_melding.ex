@@ -41,50 +41,40 @@ defmodule Wenche.MvaMelding do
   4. Upload melding (add new data element)
   5. Advance process twice (to signing)
 
-  ## Options
+  To inspect the generated XML without submitting, call
+  `Wenche.MvaMeldingXml.generer_konvolutt_xml/1` and
+  `Wenche.MvaMeldingXml.generer_melding_xml/1` directly.
 
-  - `:dry_run` — if true, writes XML files locally without submitting (default: false)
-
-  Returns `{:ok, inbox_url}` or `{:ok, {:dry_run, konvolutt_file, melding_file}}` or `{:error, reason}`.
+  Returns `{:ok, inbox_url}` or `{:error, reason}`.
   """
-  def send_inn(mva_data, %AltinnClient{} = client, opts \\ []) do
-    dry_run = Keyword.get(opts, :dry_run, false)
+  def send_inn(mva_data, %AltinnClient{} = client, _opts \\ []) do
     org = mva_data.org_nummer
 
     konvolutt_xml = MvaMeldingXml.generer_konvolutt_xml(mva_data)
     melding_xml = MvaMeldingXml.generer_melding_xml(mva_data)
 
-    if dry_run do
-      konvolutt_fil = "mva_melding_#{mva_data.year}_t#{mva_data.termin}_#{org}_konvolutt.xml"
-      melding_fil = "mva_melding_#{mva_data.year}_t#{mva_data.termin}_#{org}_melding.xml"
-      File.write!(konvolutt_fil, konvolutt_xml)
-      File.write!(melding_fil, melding_xml)
-
-      {:ok, {:dry_run, konvolutt_fil, melding_fil}}
-    else
-      with {:ok, instans} <- AltinnClient.opprett_instans(client, "mva_melding", org),
-           {:ok, _} <-
-             AltinnClient.oppdater_data_element(
-               client,
-               "mva_melding",
-               instans,
-               "no.skatteetaten.fastsetting.avgift.mva.mvameldinginnsending.v1.0",
-               konvolutt_xml,
-               "application/xml"
-             ),
-           {:ok, _} <-
-             AltinnClient.legg_til_data_element(
-               client,
-               "mva_melding",
-               instans,
-               "no.skatteetaten.fastsetting.avgift.mva.skattemeldingformerverdiavgift.v1.0",
-               melding_xml,
-               "application/xml"
-             ),
-           {:ok, _} <- AltinnClient.fullfoor_instans(client, "mva_melding", instans),
-           {:ok, inbox_url} <- AltinnClient.fullfoor_instans(client, "mva_melding", instans) do
-        {:ok, inbox_url}
-      end
+    with {:ok, instans} <- AltinnClient.opprett_instans(client, "mva_melding", org),
+         {:ok, _} <-
+           AltinnClient.oppdater_data_element(
+             client,
+             "mva_melding",
+             instans,
+             "no.skatteetaten.fastsetting.avgift.mva.mvameldinginnsending.v1.0",
+             konvolutt_xml,
+             "application/xml"
+           ),
+         {:ok, _} <-
+           AltinnClient.legg_til_data_element(
+             client,
+             "mva_melding",
+             instans,
+             "no.skatteetaten.fastsetting.avgift.mva.skattemeldingformerverdiavgift.v1.0",
+             melding_xml,
+             "application/xml"
+           ),
+         {:ok, _} <- AltinnClient.fullfoor_instans(client, "mva_melding", instans),
+         {:ok, inbox_url} <- AltinnClient.fullfoor_instans(client, "mva_melding", instans) do
+      {:ok, inbox_url}
     end
   end
 

@@ -316,10 +316,17 @@ defmodule Wenche.AltinnClient do
     end
   end
 
-  # Legacy API compatibility
+  # ── Token-based convenience API ─────────────────────────────────────
+  #
+  # The functions above take an `%AltinnClient{}` struct and are used by
+  # Wenche's own submission flows (Aarsregnskap, Skattemelding, MvaMelding).
+  # The functions below take a raw Altinn token + app_id directly, and are
+  # the preferred surface for application callers that want to drive the
+  # Altinn 3 instance lifecycle themselves without constructing a client
+  # struct. Both APIs are first-class; pick whichever shape fits the caller.
 
   @doc """
-  Creates a new Altinn 3 app instance (legacy API).
+  Creates a new Altinn 3 app instance.
 
   Returns `{:ok, instance_body}` or `{:error, reason}`.
   """
@@ -352,7 +359,7 @@ defmodule Wenche.AltinnClient do
   end
 
   @doc """
-  Uploads/updates a data element on an existing instance (legacy API).
+  Uploads/updates a data element on an existing instance.
 
   Returns `{:ok, response_body}` or `{:error, reason}`.
   """
@@ -391,7 +398,7 @@ defmodule Wenche.AltinnClient do
   end
 
   @doc """
-  Moves the instance to the next process step (legacy API).
+  Moves the instance to the next process step.
 
   Returns `{:ok, response_body}` or `{:error, reason}`.
   """
@@ -419,7 +426,7 @@ defmodule Wenche.AltinnClient do
   end
 
   @doc """
-  Gets the current status of an instance (legacy API).
+  Gets the current status of an instance.
 
   Returns `{:ok, response_body}` or `{:error, reason}`.
   """

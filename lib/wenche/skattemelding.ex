@@ -525,9 +525,12 @@ defmodule Wenche.Skattemelding do
   Generates XML documents from the given `Aarsregnskap` and `SkattemeldingKonfig`,
   then submits via the Altinn 3 skattemelding app.
 
+  To inspect the generated XML without submitting, call
+  `Wenche.SkattemeldingXml.generer_skattemelding_xml/3`,
+  `generer_naeringsspesifikasjon_xml/2`, and `generer_request_xml/3` directly.
+
   ## Options
 
-  - `:dry_run` — if true, writes XML files locally without submitting (default: false)
   - `:skd_client` — `SkdSkattemeldingClient` used to fetch the real partsnummer
     and dokumentreferanse from SKD. Strongly recommended; without it the request
     envelope falls back to using the org number as partsnummer and emits no
@@ -540,7 +543,7 @@ defmodule Wenche.Skattemelding do
   - `:innsendingstype`, `:innsendingsformaal` — envelope overrides; see
     `SkattemeldingXml.generer_request_xml/3`.
 
-  Returns `{:ok, inbox_url}` or `{:ok, {:dry_run, files}}` or `{:error, reason}`.
+  Returns `{:ok, inbox_url}` or `{:error, reason}`.
   """
   def send_inn(
         %Aarsregnskap{} = regnskap,
@@ -548,7 +551,6 @@ defmodule Wenche.Skattemelding do
         %AltinnClient{} = client,
         opts \\ []
       ) do
-    dry_run = Keyword.get(opts, :dry_run, false)
     org = regnskap.selskap.org_nummer
     aar = regnskap.regnskapsaar
 
@@ -556,14 +558,14 @@ defmodule Wenche.Skattemelding do
 
     case resolve_utkast_referanse(opts, skd_client, aar, org) do
       {:ok, ref} ->
-        do_send_inn(regnskap, konfig, client, opts, ref, dry_run)
+        do_send_inn(regnskap, konfig, client, opts, ref)
 
       {:error, reason} ->
         {:error, {:utkast_referanse_failed, reason}}
     end
   end
 
-  defp do_send_inn(regnskap, konfig, client, opts, ref, dry_run) do
+  defp do_send_inn(regnskap, konfig, client, opts, ref) do
     org = regnskap.selskap.org_nummer
     aar = regnskap.regnskapsaar
 
@@ -582,37 +584,26 @@ defmodule Wenche.Skattemelding do
         request_envelope_opts(opts, aar, org, ref)
       )
 
-    if dry_run do
-      skattemelding_fil = "skattemelding_#{aar}_#{org}_skattemelding.xml"
-      naering_fil = "skattemelding_#{aar}_#{org}_naeringsspesifikasjon.xml"
-      request_fil = "skattemelding_#{aar}_#{org}_request.xml"
-      File.write!(skattemelding_fil, skattemelding_xml)
-      File.write!(naering_fil, naering_xml)
-      File.write!(request_fil, request_xml)
-
-      {:ok, {:dry_run, skattemelding_fil, naering_fil, request_fil}}
-    else
-      # SKD's formueinntekt-skattemelding-v2 expects (mirrors the Python reference):
-      #   1. POST /instances                                  → opprett_instans
-      #   2. PUT  /data/<Skattemeldingsapp_v2>  (JSON inntektsaar)
-      #   3. POST /data?dataType=skattemeldingOgNaeringsspesifikasjon (XML envelope)
-      #   4. PUT  /process/next                               → neste_prosesssteg
-      #   5. PUT  /process/next                               → fullfoor_instans
-      with {:ok, instans} <- AltinnClient.opprett_instans(client, "skattemelding", org),
-           {:ok, _} <-
-             AltinnClient.oppdater_data_element(
-               client,
-               "skattemelding",
-               instans,
-               "Skattemeldingsapp_v2",
-               Jason.encode!(%{inntektsaar: aar}),
-               "application/json"
-             ),
-           {:ok, _} <-
-             AltinnClient.last_opp_skattemelding_konvolutt(client, instans, request_xml),
-           {:ok, _} <- AltinnClient.neste_prosesssteg(client, "skattemelding", instans) do
-        AltinnClient.fullfoor_instans(client, "skattemelding", instans)
-      end
+    # SKD's formueinntekt-skattemelding-v2 expects (mirrors the Python reference):
+    #   1. POST /instances                                  → opprett_instans
+    #   2. PUT  /data/<Skattemeldingsapp_v2>  (JSON inntektsaar)
+    #   3. POST /data?dataType=skattemeldingOgNaeringsspesifikasjon (XML envelope)
+    #   4. PUT  /process/next                               → neste_prosesssteg
+    #   5. PUT  /process/next                               → fullfoor_instans
+    with {:ok, instans} <- AltinnClient.opprett_instans(client, "skattemelding", org),
+         {:ok, _} <-
+           AltinnClient.oppdater_data_element(
+             client,
+             "skattemelding",
+             instans,
+             "Skattemeldingsapp_v2",
+             Jason.encode!(%{inntektsaar: aar}),
+             "application/json"
+           ),
+         {:ok, _} <-
+           AltinnClient.last_opp_skattemelding_konvolutt(client, instans, request_xml),
+         {:ok, _} <- AltinnClient.neste_prosesssteg(client, "skattemelding", instans) do
+      AltinnClient.fullfoor_instans(client, "skattemelding", instans)
     end
   end
 
