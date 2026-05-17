@@ -151,6 +151,10 @@ client = Wenche.AltinnClient.new(altinn_token, env: "prod")
 
 ### Tax Calculation
 
+`Wenche.Skattemelding.beregn/2` returns the computed tax return as a structured
+map (RF-1167 næringsoppgave, RF-1028 skattemelding, balance overview, equity
+note, sammenligning, warnings). Render it however you like.
+
 ```elixir
 alias Wenche.Models.SkattemeldingKonfig
 
@@ -160,8 +164,17 @@ konfig = %SkattemeldingKonfig{
   underskudd_til_fremfoering: 0
 }
 
-rapport = Wenche.Skattemelding.generer(regnskap, konfig)
-IO.puts(rapport)
+beregning = Wenche.Skattemelding.beregn(regnskap, konfig)
+# %{
+#   selskap: %{navn: ..., org_nummer: ...},
+#   regnskapsaar: 2025,
+#   rf_1167: %{driftsinntekter: %{...}, driftskostnader: %{...}, ...},
+#   rf_1028: %{utbytte: ..., beregnet_skatt: ..., ...},
+#   balanse: %{i_balanse: true, differanse: 0, ...},
+#   sammenligning: %{...} | nil,
+#   egenkapitalnote: %{...} | nil,
+#   advarsler: [...]
+# }
 ```
 
 ### Shareholder Register (RF-1086)

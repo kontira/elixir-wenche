@@ -72,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`Wenche.Skattemelding.generer/2`** — the human-readable text-summary
+  renderer (and its ~250 lines of private formatting helpers). Application
+  consumers should use `beregn/2`, which returns the same data as a
+  structured map suitable for any rendering target. The original Python
+  CLI tool emitted a fixed text report; in the Elixir library this concern
+  belongs to the caller.
 - The short-lived `:permanent_forskjell_total` override on `SkattemeldingKonfig`
   (introduced and removed within this release cycle; superseded by accepting
   `Decimal` `:beloep` in the per-line breakdown).
