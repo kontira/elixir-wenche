@@ -26,8 +26,10 @@ defmodule Wenche.MvaMelding do
   alias Wenche.{AltinnClient, MvaMeldingXml}
 
   @validation_bases %{
-    "test" => "https://skatt-utv3.sits.no/api/mva/mva-melding/valider",
-    "prod" => "https://api.sits.no/api/mva/mva-melding/valider"
+    "test" =>
+      "https://idporten-api-sbstest.sits.no/api/mva/grensesnittstoette/mva-melding/valider",
+    "prod" =>
+      "https://idporten.api.skatteetaten.no/api/mva/grensesnittstoette/mva-melding/valider"
   }
 
   @doc """
