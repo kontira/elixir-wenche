@@ -106,6 +106,49 @@ defmodule Wenche.MaskinportenTest do
     end
   end
 
+  describe "mva_melding scopes" do
+    test "validation uses only the Skatteetaten validation scope" do
+      assert Maskinporten.mva_melding_validation_scope() == "skatteetaten:mvameldingvalidering"
+    end
+
+    test "submission uses the Skatteetaten submission scope and Altinn instance scopes" do
+      scopes = Maskinporten.mva_melding_submission_scope()
+
+      assert scopes =~ "skatteetaten:mvameldinginnsending"
+      assert scopes =~ "altinn:instances.read"
+      assert scopes =~ "altinn:instances.write"
+    end
+
+    test "validation token request signs a JWT with the validation scope", %{private_key_pem: pem} do
+      config = [
+        client_id: "test-client-id",
+        kid: "test-kid",
+        private_key_pem: pem,
+        env: "test",
+        req_options: [plug: {Req.Test, __MODULE__}]
+      ]
+
+      test_pid = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        params = URI.decode_query(body)
+        send(test_pid, {:token_request, params["assertion"]})
+        Req.Test.json(conn, %{"access_token" => "mva-validation-token"})
+      end)
+
+      assert {:ok, "mva-validation-token"} = Maskinporten.get_mva_melding_validation_token(config)
+      assert_received {:token_request, jwt}
+
+      [_header, payload, _sig] = String.split(jwt, ".")
+      claims = payload |> Base.url_decode64!(padding: false) |> Jason.decode!()
+
+      assert claims["scope"] == "skatteetaten:mvameldingvalidering"
+      refute claims["scope"] =~ "mvameldinginnsending"
+      refute claims["scope"] =~ "altinn:instances"
+    end
+  end
+
   describe "admin_scopes/0" do
     test "returns the admin scopes" do
       scopes = Maskinporten.admin_scopes()

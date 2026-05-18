@@ -42,6 +42,11 @@ defmodule Wenche.Maskinporten do
   # Scope for aksjonærregisteroppgave submission directly to SKD's API
   @skd_aksjonaer_scope "skatteetaten:innrapporteringaksjonaerregisteroppgave"
 
+  # Scopes for MVA-melding.
+  @mva_melding_submission_scope "skatteetaten:mvameldinginnsending " <>
+                                  "altinn:instances.read altinn:instances.write"
+  @mva_melding_validation_scope "skatteetaten:mvameldingvalidering"
+
   # Scopes for skattemeldingen (tax return): direct SKD API + Altinn 3 instances.
   # Both Altinn scopes are required so Skatteetaten can resolve the systemuser →
   # executor trace via Altinn ("spor til utførende"); without them SKD rejects
@@ -230,6 +235,30 @@ defmodule Wenche.Maskinporten do
   end
 
   @doc """
+  Obtains a raw Maskinporten token with the MVA-melding validation scope.
+
+  Skatteetaten's MVA validation API uses a Maskinporten token directly (no
+  Altinn exchange). It must use `skatteetaten:mvameldingvalidering`, not the
+  submission scope.
+
+  Returns `{:ok, maskinporten_token}` or `{:error, reason}`.
+  """
+  def get_mva_melding_validation_token(config) do
+    with {:ok, jwt} <- build_jwt_grant(config, @mva_melding_validation_scope) do
+      exchange_jwt(config, jwt)
+    end
+  end
+
+  @doc """
+  Obtains an Altinn platform token with the MVA-melding submission scope.
+
+  Returns `{:ok, altinn_token}` or `{:error, reason}`.
+  """
+  def get_mva_melding_submission_token(config) do
+    get_altinn_token(config, @mva_melding_submission_scope)
+  end
+
+  @doc """
   Returns the default scopes for instance operations.
   """
   def default_scopes, do: @scopes
@@ -248,4 +277,14 @@ defmodule Wenche.Maskinporten do
   Returns the skattemeldingen scope.
   """
   def skattemelding_scope, do: @skattemelding_scope
+
+  @doc """
+  Returns the MVA-melding validation scope.
+  """
+  def mva_melding_validation_scope, do: @mva_melding_validation_scope
+
+  @doc """
+  Returns the MVA-melding submission scope.
+  """
+  def mva_melding_submission_scope, do: @mva_melding_submission_scope
 end
