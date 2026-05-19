@@ -4,6 +4,30 @@ defmodule Wenche.MvaMelding do
 
   Supports submitting and validating MVA-meldinger for Norwegian companies.
 
+  ## Authentication
+
+  Skatteetaten's MVA-melding API **only supports ID-porten** (end-user
+  authentication). Maskinporten and system users are **not supported** —
+  there is no Wenche helper to obtain a token here, and the systembruker
+  flow cannot grant MVA rights.
+
+  Callers must obtain an Altinn platform token themselves by:
+
+  1. Authenticating the end user via ID-porten
+  2. Exchanging the resulting token for an Altinn token
+
+  The same Altinn token is used for both validation and submission. The
+  scope tuples required from ID-porten are:
+
+  - Validation: `openid skatteetaten:mvameldingvalidering`
+  - Submission: `openid altinn:instances.read altinn:instances.write`
+
+  (The deprecated `skatteetaten:mvameldinginnsending` scope is being phased
+  out during 2026 and replaced by the two Altinn instance scopes above.)
+
+  Pass the resulting Altinn token as `:token` to `valider/2` or via the
+  `AltinnClient` for `send_inn/3`.
+
   ## MVA Data
 
   The `mva_data` parameter is a map with these keys:
@@ -17,10 +41,7 @@ defmodule Wenche.MvaMelding do
 
   > #### Experimental {: .warning}
   >
-  > This module is **experimental and untested in production**. The MVA-melding
-  > scope (`app_skd_mva-melding-innsending-v1`) is not included in the default
-  > system user rights — you must explicitly opt in via
-  > `Wenche.Systembruker.rights([:mva_melding])`.
+  > This module is **experimental and untested in production**.
   """
 
   alias Wenche.{AltinnClient, MvaMeldingXml}

@@ -24,8 +24,8 @@ defmodule Wenche.Systembruker do
       # Default — årsregnskap + aksjonærregister only
       Wenche.Systembruker.rights()
 
-      # Include skattemelding and mva_melding scopes
-      Wenche.Systembruker.rights([:skattemelding, :mva_melding])
+      # Include skattemelding scope
+      Wenche.Systembruker.rights([:skattemelding])
 
   ## Setup (run once)
 
@@ -59,20 +59,17 @@ defmodule Wenche.Systembruker do
   ]
 
   # Optional rights — enabled via :features
+  #
+  # Note: MVA-melding is NOT available here. Skatteetaten's MVA-melding API
+  # only supports ID-porten (end-user authentication), not Maskinporten or
+  # system users. Submitting an MVA-melding therefore cannot be done through
+  # the systembruker flow.
   @optional_rights %{
     skattemelding: %{
       "resource" => [
         %{
           "id" => "urn:altinn:resource",
           "value" => "app_skd_formueinntekt-skattemelding-v2"
-        }
-      ]
-    },
-    mva_melding: %{
-      "resource" => [
-        %{
-          "id" => "urn:altinn:resource",
-          "value" => "app_skd_mva-melding-innsending-v1"
         }
       ]
     }
@@ -92,10 +89,6 @@ defmodule Wenche.Systembruker do
       #=> ["app_brg_aarsregnskap-vanlig-202406", "ske-innrapportering-aksjonaerregisteroppgave",
       #    "app_skd_formueinntekt-skattemelding-v2"]
 
-      Wenche.Systembruker.resource_ids([:skattemelding, :mva_melding])
-      #=> ["app_brg_aarsregnskap-vanlig-202406", "ske-innrapportering-aksjonaerregisteroppgave",
-      #    "app_skd_formueinntekt-skattemelding-v2",
-      #    "app_skd_mva-melding-innsending-v1"]
   """
   def resource_ids(features \\ []) do
     rights(features)
@@ -111,11 +104,14 @@ defmodule Wenche.Systembruker do
   ## Supported features
 
     * `:skattemelding` — adds the skattemelding scope
-      (`app_skd_formueinntekt-skattemelding-v2`). **Note:** systemic submission
-      of skattemelding requires being a registered revisor or regnskapsfører.
-      Enable this only if you have the appropriate authorization.
-    * `:mva_melding` — adds the MVA-melding scope
-      (`app_skd_mva-melding-innsending-v1`).
+      (`app_skd_formueinntekt-skattemelding-v2`). Lets the systemuser
+      authenticate against Skatteetaten's `/valider` endpoint via
+      Maskinporten. **Submission still requires ID-porten** — a system
+      user cannot submit the skattemelding. See `Wenche.Skattemelding`.
+
+  MVA-melding is intentionally not listed: Skatteetaten only supports
+  ID-porten authentication for MVA (validation and submission), so it
+  cannot be requested via a system user.
 
   ## Examples
 

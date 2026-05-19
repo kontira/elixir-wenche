@@ -16,14 +16,30 @@ defmodule Wenche.Skattemelding do
   - Caller-supplied `:permanent_forskjeller` on `SkattemeldingKonfig`
   - Prior year comparison figures and equity reconciliation note (via `beregn/2`)
 
+  ## Authentication
+
+  Validation and submission use different auth flows:
+
+  - **Validation** (`valider/3` → `SkdSkattemeldingClient`) works with a
+    Maskinporten + systemuser token, obtained via
+    `Wenche.Maskinporten.get_skd_skattemelding_token/2`. The
+    `altinn:instances.read`/`.write` scopes in that token are required so
+    Skatteetaten can resolve the systemuser → executor trace via Altinn.
+  - **Submission** (`send_inn/4` → `AltinnClient`) requires an Altinn
+    platform token obtained from **ID-porten** (end-user authentication +
+    Altinn token exchange). Skatteetaten does **not** accept a system user
+    for the submission step. Wenche does not provide an ID-porten flow —
+    callers must obtain the Altinn token themselves and pass it via
+    `AltinnClient.new/2`.
+
   > #### Experimental: Systemic submission {: .warning}
   >
-  > Systemic submission of the skattemelding via Altinn 3 (`send_inn/2`)
-  > is **untested and highly experimental**. It requires the submitting
-  > system to be a registered revisor or regnskapsfører. The skattemelding
-  > scope (`app_skd_formueinntekt-skattemelding-v2`) is not included in
-  > the default system user rights — you must explicitly opt in via
-  > `Wenche.Systembruker.rights([:skattemelding])`.
+  > Systemic submission of the skattemelding via Altinn 3 (`send_inn/4`)
+  > is **untested and highly experimental**. It also requires the
+  > submitting end-user to be a registered revisor or regnskapsfører.
+  > Enable `Wenche.Systembruker.rights([:skattemelding])` for the
+  > validation flow; it has no effect on submission since that goes
+  > through ID-porten.
   """
 
   alias Wenche.Models.{
