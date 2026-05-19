@@ -8,6 +8,7 @@ defmodule Wenche.MvaMeldingXml do
   """
 
   @melding_ns "no:skatteetaten:fastsetting:avgift:mva:skattemeldingformerverdiavgift:v1.0"
+  @konvolutt_ns "no:skatteetaten:fastsetting:avgift:mva:mvameldinginnsending:v1.0"
 
   @perioder %{
     1 => "januar-februar",
@@ -44,7 +45,7 @@ defmodule Wenche.MvaMeldingXml do
 
     """
     <?xml version="1.0" encoding="UTF-8"?>
-    <mvaMeldingInnsending>
+    <mvaMeldingInnsending xmlns="#{@konvolutt_ns}">
       <norskIdentifikator><organisasjonsnummer>#{escape(org_nr)}</organisasjonsnummer></norskIdentifikator>
       <skattleggingsperiode>
         <periode><skattleggingsperiodeToMaaneder>#{periode}</skattleggingsperiodeToMaaneder></periode>
@@ -114,6 +115,7 @@ defmodule Wenche.MvaMeldingXml do
         <fastsattMerverdiavgift>#{fastsatt_mva}</fastsattMerverdiavgift>
     #{linjer_xml}
       </skattegrunnlagOgBeregnetSkatt>
+      <betalingsinformasjon/>
       <skattepliktig><organisasjonsnummer>#{escape(org_nr)}</organisasjonsnummer></skattepliktig>
       <meldingskategori>alminnelig</meldingskategori>
     </mvaMeldingDto>

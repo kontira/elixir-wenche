@@ -58,7 +58,7 @@ defmodule Wenche.MvaMeldingXmlTest do
     test "produces valid XML with correct root element" do
       xml = MvaMeldingXml.generer_konvolutt_xml(sample_mva_data())
 
-      assert xml =~ "<mvaMeldingInnsending>"
+      assert xml =~ "<mvaMeldingInnsending xmlns=\"no:skatteetaten:fastsetting:avgift:mva:mvameldinginnsending:v1.0\">"
       assert xml =~ "</mvaMeldingInnsending>"
     end
 
@@ -210,6 +210,64 @@ defmodule Wenche.MvaMeldingXmlTest do
 
       assert xml =~ "<fastsattMerverdiavgift>0</fastsattMerverdiavgift>"
       refute xml =~ "<mvaSpesifikasjonslinje>"
+    end
+  end
+
+  describe "XSD validation (requires xmllint; XSDs vendored at priv/xsd/skatteetaten/mva)" do
+    @xsd_dir Path.join(:code.priv_dir(:wenche), "xsd/skatteetaten/mva")
+    @konvolutt_xsd "#{@xsd_dir}/no.skatteetaten.fastsetting.avgift.mva.mvameldinginnsending.v1.0.xsd"
+    @melding_xsd "#{@xsd_dir}/no.skatteetaten.fastsetting.avgift.mva.skattemeldingformerverdiavgift.v1.0.xsd"
+
+    @tag :xsd
+    test "konvolutt (mvameldinginnsending v1.0) validates" do
+      xml = MvaMeldingXml.generer_konvolutt_xml(sample_mva_data())
+      assert_xml_valid!(xml, @konvolutt_xsd)
+    end
+
+    @tag :xsd
+    test "melding (skattemeldingformerverdiavgift v1.0) validates" do
+      xml = MvaMeldingXml.generer_melding_xml(sample_mva_data())
+      assert_xml_valid!(xml, @melding_xsd)
+    end
+
+    @tag :xsd
+    test "melding with negative fastsatt_merverdiavgift (refund) validates" do
+      data = %{sample_mva_data() | fastsatt_merverdiavgift: -50_000}
+      xml = MvaMeldingXml.generer_melding_xml(data)
+      assert_xml_valid!(xml, @melding_xsd)
+    end
+
+    @tag :xsd
+    test "melding with empty linjer validates" do
+      data = %{sample_mva_data() | linjer: [], fastsatt_merverdiavgift: 0}
+      xml = MvaMeldingXml.generer_melding_xml(data)
+      assert_xml_valid!(xml, @melding_xsd)
+    end
+
+    @tag :xsd
+    test "konvolutt validates for every termin 1..6" do
+      for termin <- 1..6 do
+        xml = MvaMeldingXml.generer_konvolutt_xml(%{sample_mva_data() | termin: termin})
+        assert_xml_valid!(xml, @konvolutt_xsd)
+      end
+    end
+
+    defp assert_xml_valid!(xml, schema_path) do
+      unless File.exists?(schema_path), do: flunk("Schema not found: #{schema_path}")
+
+      path =
+        Path.join(System.tmp_dir!(), "wenche_mva_xsd_test_#{System.unique_integer([:positive])}.xml")
+
+      File.write!(path, xml)
+
+      {output, status} =
+        System.cmd("xmllint", ["--schema", schema_path, path, "--noout"], stderr_to_stdout: true)
+
+      File.rm(path)
+
+      unless status == 0 do
+        flunk("XSD validation failed for #{schema_path}:\n#{output}\n\nXML:\n#{xml}")
+      end
     end
   end
 end
