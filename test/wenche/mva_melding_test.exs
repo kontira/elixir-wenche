@@ -21,7 +21,7 @@ defmodule Wenche.MvaMeldingTest do
     test "returns ok with validation result on success" do
       Req.Test.stub(Wenche.MvaMelding, fn conn ->
         assert conn.method == "POST"
-        assert conn.host == "idporten-api-sbstest.sits.no"
+        assert conn.host == "idporten-api-test.sits.no"
         assert conn.request_path == "/api/mva/grensesnittstoette/mva-melding/valider"
         assert {"authorization", "Bearer test-token"} in conn.req_headers
         Req.Test.json(conn, %{"status" => "ok", "errors" => []})
