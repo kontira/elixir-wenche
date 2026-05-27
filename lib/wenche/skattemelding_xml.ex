@@ -32,7 +32,11 @@ defmodule Wenche.SkattemeldingXml do
   actual submission unless replaced with the real partsnummer.
   """
 
-  alias Wenche.Models.Aarsregnskap
+  alias Wenche.Models.{
+    Aarsregnskap,
+    KortsiktigGjeld,
+    LangsiktigGjeld
+  }
 
   @skattemelding_ns "urn:no:skatteetaten:fastsetting:formueinntekt:skattemelding:upersonlig:ekstern:v5"
   @naering_ns "urn:no:skatteetaten:fastsetting:formueinntekt:naeringsspesifikasjon:ekstern:v6"
@@ -85,6 +89,11 @@ defmodule Wenche.SkattemeldingXml do
     expected map shape. Required for SKD to apply fritaksmetoden to dividends
     and gains on aksje/verdipapir holdings — without it, SKD taxes the full
     income.
+  - `konfig.formuesverdi_aksjer` — summed formuesverdi of share/fund
+    holdings. When present, emits `<formueOgGjeld>` with XSD-backed
+    overstyring fields so SKD can derive value behind the company's shares.
+  - `konfig.samlet_verdi_bak_aksjene` — explicit net value behind the shares.
+    When present, this override takes precedence over `:formuesverdi_aksjer`.
   """
   def generer_skattemelding_xml(%Aarsregnskap{} = regnskap, konfig, opts \\ []) do
     partsnummer = Keyword.get(opts, :partsnummer, regnskap.selskap.org_nummer)
@@ -118,6 +127,8 @@ defmodule Wenche.SkattemeldingXml do
       |> Keyword.get(:aksjespesifikasjon, [])
       |> generer_spesifikasjon_av_forhold_relevante_for_beskatning()
 
+    formue_og_gjeld = formue_og_gjeld_block(regnskap, konfig)
+
     """
     <?xml version="1.0" encoding="UTF-8"?>
     <skattemelding xmlns="#{@skattemelding_ns}">
@@ -125,10 +136,96 @@ defmodule Wenche.SkattemeldingXml do
       <inntektsaar>#{aar}</inntektsaar>
     #{inntekt_og_underskudd}
     #{aksjespesifikasjon}
+    #{formue_og_gjeld}
     </skattemelding>
     """
     |> String.trim()
     |> remove_blank_lines()
+  end
+
+  @doc """
+  Calculates `{samletVerdiFoerEventuellVerdsettingsrabatt, samletGjeld}` for
+  `<formueOgGjeld>`.
+
+  `samlet_verdi_bak_aksjene` is treated as an explicit net override and takes
+  precedence. Otherwise, `formuesverdi_aksjer` replaces the book value of
+  share/fund holdings while bank deposits and receivables are included at face
+  value. Returns `{nil, nil}` when no valuation input is present.
+  """
+  def beregn_formue_inputs(%Aarsregnskap{} = regnskap, konfig) do
+    b = regnskap.balanse
+
+    samlet_gjeld =
+      LangsiktigGjeld.sum(b.egenkapital_og_gjeld.langsiktig_gjeld) +
+        KortsiktigGjeld.sum(b.egenkapital_og_gjeld.kortsiktig_gjeld)
+
+    cond do
+      not is_nil(Map.get(konfig || %{}, :samlet_verdi_bak_aksjene)) ->
+        netto =
+          konfig
+          |> Map.get(:samlet_verdi_bak_aksjene)
+          |> beloep_to_int(:half_up)
+          |> max(0)
+
+        {netto + samlet_gjeld, samlet_gjeld}
+
+      is_nil(Map.get(konfig || %{}, :formuesverdi_aksjer)) ->
+        {nil, nil}
+
+      true ->
+        formuesverdi_aksjer =
+          konfig
+          |> Map.get(:formuesverdi_aksjer)
+          |> beloep_to_int(:half_up)
+
+        verdi_foer_rabatt =
+          formuesverdi_aksjer +
+            b.eiendeler.omloepmidler.bankinnskudd +
+            b.eiendeler.omloepmidler.kortsiktige_fordringer +
+            b.eiendeler.anleggsmidler.langsiktige_fordringer
+
+        {verdi_foer_rabatt, samlet_gjeld}
+    end
+  end
+
+  @doc """
+  Returns net value behind the shares, floored at zero, for display/control.
+  """
+  def beregn_verdi_bak_aksjene(%Aarsregnskap{} = regnskap, konfig) do
+    case beregn_formue_inputs(regnskap, konfig) do
+      {nil, _} -> nil
+      {foer_rabatt, gjeld} -> max(0, foer_rabatt - (gjeld || 0))
+    end
+  end
+
+  defp formue_og_gjeld_block(regnskap, konfig) do
+    case beregn_formue_inputs(regnskap, konfig) do
+      {nil, _} ->
+        ""
+
+      {verdi_foer_rabatt, samlet_gjeld} ->
+        """
+          <formueOgGjeld>
+            #{overstyrt_heltall("samletVerdiFoerEventuellVerdsettingsrabatt", verdi_foer_rabatt)}
+            #{overstyrt_heltall("samletGjeld", samlet_gjeld || 0)}
+          </formueOgGjeld>
+        """
+        |> String.trim_trailing()
+    end
+  end
+
+  defp overstyrt_heltall(tag, value) do
+    """
+    <#{tag}>
+      <beloep>
+        <beloepSomHeltall>#{value}</beloepSomHeltall>
+      </beloep>
+      <erOverstyrt>
+        <boolsk>true</boolsk>
+      </erOverstyrt>
+    </#{tag}>
+    """
+    |> String.trim()
   end
 
   @doc """

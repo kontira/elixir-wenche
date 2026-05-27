@@ -114,6 +114,42 @@ defmodule Wenche.SkattemeldingXmlTest do
       refute xml =~ "nettoformue"
     end
 
+    test "emits formueOgGjeld when formuesverdi_aksjer is set" do
+      xml =
+        SkattemeldingXml.generer_skattemelding_xml(
+          sample_regnskap(),
+          %SkattemeldingKonfig{formuesverdi_aksjer: Decimal.new("123456.50")}
+        )
+
+      assert xml =~ "<formueOgGjeld>"
+
+      assert xml =~
+               "<samletVerdiFoerEventuellVerdsettingsrabatt>"
+
+      # 123 456.50 aksjer + 300 000 bank + 80 000 kortsiktige fordringer +
+      # 30 000 langsiktige fordringer, rounded half-up.
+      assert xml =~ "<beloepSomHeltall>533457</beloepSomHeltall>"
+      assert xml =~ "<samletGjeld>"
+      assert xml =~ "<beloepSomHeltall>250000</beloepSomHeltall>"
+      assert xml =~ "<erOverstyrt>"
+      assert xml =~ "<boolsk>true</boolsk>"
+    end
+
+    test "samlet_verdi_bak_aksjene overrides formuesverdi_aksjer" do
+      konfig = %SkattemeldingKonfig{
+        formuesverdi_aksjer: 999_999,
+        samlet_verdi_bak_aksjene: Decimal.new("42.4")
+      }
+
+      assert {250_042, 250_000} = SkattemeldingXml.beregn_formue_inputs(sample_regnskap(), konfig)
+      assert 42 = SkattemeldingXml.beregn_verdi_bak_aksjene(sample_regnskap(), konfig)
+    end
+
+    test "beregn_formue_inputs returns nils when no valuation is configured" do
+      assert {nil, nil} =
+               SkattemeldingXml.beregn_formue_inputs(sample_regnskap(), %SkattemeldingKonfig{})
+    end
+
     test "emits underskuddTilFremfoering only when fremfoert_underskudd > 0" do
       konfig_zero = %SkattemeldingKonfig{underskudd_til_fremfoering: 0}
       xml_zero = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig_zero)
@@ -769,6 +805,18 @@ defmodule Wenche.SkattemeldingXmlTest do
           %SkattemeldingKonfig{underskudd_til_fremfoering: 7_500}
         )
 
+      assert_xml_valid!(xml, "#{@xsd_dir}/skattemeldingUpersonlig_v5_ekstern.xsd")
+    end
+
+    @tag :xsd
+    test "skattemelding (v5) with formueOgGjeld validates" do
+      xml =
+        SkattemeldingXml.generer_skattemelding_xml(
+          sample_regnskap(),
+          %SkattemeldingKonfig{formuesverdi_aksjer: 123_457}
+        )
+
+      assert xml =~ "<formueOgGjeld>"
       assert_xml_valid!(xml, "#{@xsd_dir}/skattemeldingUpersonlig_v5_ekstern.xsd")
     end
 

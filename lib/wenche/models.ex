@@ -421,7 +421,9 @@ defmodule Wenche.Models do
               #   :skattepliktigDelAvUtbytterOgUtdelinger (add to inntekt)
               #   :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter (subtract)
               #   :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter (add)
-              permanent_forskjeller: nil
+              permanent_forskjeller: nil,
+              formuesverdi_aksjer: nil,
+              samlet_verdi_bak_aksjene: nil
 
     @type permanent_forskjell :: %{type: atom(), beloep: Decimal.t() | integer()}
 
@@ -429,7 +431,9 @@ defmodule Wenche.Models do
             underskudd_til_fremfoering: integer(),
             anvend_fritaksmetoden: boolean(),
             eierandel_datterselskap: integer(),
-            permanent_forskjeller: [permanent_forskjell()] | nil
+            permanent_forskjeller: [permanent_forskjell()] | nil,
+            formuesverdi_aksjer: integer() | Decimal.t() | nil,
+            samlet_verdi_bak_aksjene: integer() | Decimal.t() | nil
           }
   end
 end
