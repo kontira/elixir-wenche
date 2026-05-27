@@ -215,6 +215,43 @@ defmodule Wenche.MvaMeldingXmlTest do
     end
   end
 
+  describe "annual filing (filing_frequency: :annual)" do
+    def annual_mva_data do
+      Map.put(sample_mva_data(), :filing_frequency, :annual)
+    end
+
+    test "periode_element/1 emits skattleggingsperiodeAar for annual" do
+      assert MvaMeldingXml.periode_element(annual_mva_data()) ==
+               "<skattleggingsperiodeAar>aarlig</skattleggingsperiodeAar>"
+    end
+
+    test "periode_element/1 defaults to bimonthly when filing_frequency is missing" do
+      assert MvaMeldingXml.periode_element(sample_mva_data()) ==
+               "<skattleggingsperiodeToMaaneder>januar-februar</skattleggingsperiodeToMaaneder>"
+    end
+
+    test "konvolutt uses skattleggingsperiodeAar for annual" do
+      xml = MvaMeldingXml.generer_konvolutt_xml(annual_mva_data())
+
+      assert xml =~ "<skattleggingsperiodeAar>aarlig</skattleggingsperiodeAar>"
+      refute xml =~ "skattleggingsperiodeToMaaneder"
+    end
+
+    test "melding uses skattleggingsperiodeAar for annual" do
+      xml = MvaMeldingXml.generer_melding_xml(annual_mva_data())
+
+      assert xml =~ "<skattleggingsperiodeAar>aarlig</skattleggingsperiodeAar>"
+      refute xml =~ "skattleggingsperiodeToMaaneder"
+    end
+
+    test "melding generates 'aarlig' suffix in default reference for annual" do
+      xml = MvaMeldingXml.generer_melding_xml(annual_mva_data())
+
+      assert xml =~
+               "<regnskapssystemsreferanse>mva-912345678-2025-aarlig</regnskapssystemsreferanse>"
+    end
+  end
+
   describe "XSD validation (requires xmllint; XSDs vendored at priv/xsd/skatteetaten/mva)" do
     @xsd_dir Path.join(:code.priv_dir(:wenche), "xsd/skatteetaten/mva")
     @konvolutt_xsd "#{@xsd_dir}/no.skatteetaten.fastsetting.avgift.mva.mvameldinginnsending.v1.0.xsd"
@@ -252,6 +289,20 @@ defmodule Wenche.MvaMeldingXmlTest do
         xml = MvaMeldingXml.generer_konvolutt_xml(%{sample_mva_data() | termin: termin})
         assert_xml_valid!(xml, @konvolutt_xsd)
       end
+    end
+
+    @tag :xsd
+    test "konvolutt validates for annual filing_frequency" do
+      data = Map.put(sample_mva_data(), :filing_frequency, :annual)
+      xml = MvaMeldingXml.generer_konvolutt_xml(data)
+      assert_xml_valid!(xml, @konvolutt_xsd)
+    end
+
+    @tag :xsd
+    test "melding validates for annual filing_frequency" do
+      data = Map.put(sample_mva_data(), :filing_frequency, :annual)
+      xml = MvaMeldingXml.generer_melding_xml(data)
+      assert_xml_valid!(xml, @melding_xsd)
     end
 
     defp assert_xml_valid!(xml, schema_path) do

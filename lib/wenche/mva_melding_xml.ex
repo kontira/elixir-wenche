@@ -19,6 +19,8 @@ defmodule Wenche.MvaMeldingXml do
     6 => "november-desember"
   }
 
+  @aarlig_periode "aarlig"
+
   @doc """
   Maps a termin number (1-6) to the skattleggingsperiodeToMaaneder string.
   """
@@ -27,28 +29,48 @@ defmodule Wenche.MvaMeldingXml do
   end
 
   @doc """
+  Builds the `<periode>` element contents for the given mva_data, choosing
+  between the bimonthly (`skattleggingsperiodeToMaaneder`) and annual
+  (`skattleggingsperiodeAar`) variants based on `:filing_frequency`.
+
+  Defaults to `:bimonthly` when the key is absent so existing callers keep
+  working unchanged.
+  """
+  def periode_element(mva_data) do
+    case Map.get(mva_data, :filing_frequency, :bimonthly) do
+      :annual ->
+        "<skattleggingsperiodeAar>#{@aarlig_periode}</skattleggingsperiodeAar>"
+
+      :bimonthly ->
+        "<skattleggingsperiodeToMaaneder>#{periode_tekst(mva_data.termin)}</skattleggingsperiodeToMaaneder>"
+    end
+  end
+
+  @doc """
   Generates the `mvaMeldingInnsending` (konvolutt/envelope) XML.
 
   The `mva_data` map must contain:
   - `:org_nummer` — organization number
-  - `:termin` — 1-6
+  - `:termin` — 1-6 (bimonthly) or 1 (annual)
   - `:year` — tax year
   - `:system_name` — name of the submitting system (default "Kontira")
+  - `:filing_frequency` — `:bimonthly` (default) or `:annual`. Annual filers
+    are companies with taxable turnover ≤ 1 000 000 NOK approved by
+    Skatteetaten for one-termin-per-year filing.
   """
   def generer_konvolutt_xml(mva_data) do
     org_nr = mva_data.org_nummer
-    termin = mva_data.termin
     year = mva_data.year
     system_name = Map.get(mva_data, :system_name, "Kontira")
     now = DateTime.utc_now() |> DateTime.to_iso8601()
-    periode = periode_tekst(termin)
+    periode = periode_element(mva_data)
 
     """
     <?xml version="1.0" encoding="UTF-8"?>
     <mvaMeldingInnsending xmlns="#{@konvolutt_ns}">
       <norskIdentifikator><organisasjonsnummer>#{escape(org_nr)}</organisasjonsnummer></norskIdentifikator>
       <skattleggingsperiode>
-        <periode><skattleggingsperiodeToMaaneder>#{periode}</skattleggingsperiodeToMaaneder></periode>
+        <periode>#{periode}</periode>
         <aar>#{year}</aar>
       </skattleggingsperiode>
       <meldingskategori>alminnelig</meldingskategori>
@@ -77,11 +99,12 @@ defmodule Wenche.MvaMeldingXml do
 
   The `mva_data` map must contain:
   - `:org_nummer` — organization number
-  - `:termin` — 1-6
+  - `:termin` — 1-6 (bimonthly) or 1 (annual)
   - `:year` — tax year
   - `:linjer` — list of `%{mva_kode: integer, grunnlag: number, sats: number, merverdiavgift: number}`
   - `:fastsatt_merverdiavgift` — total MVA amount
   - `:system_name` — name of the submitting system (default "Kontira")
+  - `:filing_frequency` — `:bimonthly` (default) or `:annual`
   """
   def generer_melding_xml(mva_data) do
     org_nr = mva_data.org_nummer
@@ -90,8 +113,10 @@ defmodule Wenche.MvaMeldingXml do
     linjer = mva_data.linjer
     fastsatt_mva = mva_data.fastsatt_merverdiavgift
     system_name = Map.get(mva_data, :system_name, "Kontira")
-    reference = Map.get(mva_data, :referanse, "mva-#{org_nr}-#{year}-#{termin}")
-    periode = periode_tekst(termin)
+    frequency = Map.get(mva_data, :filing_frequency, :bimonthly)
+    reference_suffix = if frequency == :annual, do: "aarlig", else: termin
+    reference = Map.get(mva_data, :referanse, "mva-#{org_nr}-#{year}-#{reference_suffix}")
+    periode = periode_element(mva_data)
 
     linjer_xml =
       linjer
@@ -109,7 +134,7 @@ defmodule Wenche.MvaMeldingXml do
       </innsending>
       <skattegrunnlagOgBeregnetSkatt>
         <skattleggingsperiode>
-          <periode><skattleggingsperiodeToMaaneder>#{periode}</skattleggingsperiodeToMaaneder></periode>
+          <periode>#{periode}</periode>
           <aar>#{year}</aar>
         </skattleggingsperiode>
         <fastsattMerverdiavgift>#{fastsatt_mva}</fastsattMerverdiavgift>
