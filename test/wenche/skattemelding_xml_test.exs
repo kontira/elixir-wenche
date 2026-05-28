@@ -248,6 +248,55 @@ defmodule Wenche.SkattemeldingXmlTest do
       spec_idx = :binary.match(xml, "<spesifikasjonAvForholdRelevanteForBeskatning>") |> elem(0)
       assert spec_idx > inntekt_idx
     end
+
+    test "always emits opplysningOmSkattesubjekt with both booleans (defaults false)" do
+      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
+
+      assert xml =~ "<opplysningOmSkattesubjekt>"
+      assert xml =~ "<erBoersnotert>false</erBoersnotert>"
+
+      assert xml =~
+               "<harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>false</harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>"
+    end
+
+    test "opplysningOmSkattesubjekt reflects konfig flags" do
+      konfig = %SkattemeldingKonfig{
+        er_boersnotert: true,
+        har_ytelse_mellom_aksjonaer_og_selskap: true
+      }
+
+      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig)
+
+      assert xml =~ "<erBoersnotert>true</erBoersnotert>"
+
+      assert xml =~
+               "<harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>true</harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>"
+    end
+
+    test "naeringsspesifikasjon emits egenkapitalavstemming after virksomhet" do
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+
+      assert xml =~ "<egenkapitalavstemming>"
+      assert xml =~ "<inngaaendeEgenkapital>"
+      assert xml =~ "<utgaaendeEgenkapital>"
+      assert xml =~ "<egenkapitalendring>"
+      assert xml =~ "<egenkapitalendringstype>aaretsOverskudd</egenkapitalendringstype>"
+
+      virksomhet_idx = :binary.match(xml, "<virksomhet>") |> elem(0)
+      avstemming_idx = :binary.match(xml, "<egenkapitalavstemming>") |> elem(0)
+      revisor_idx = :binary.match(xml, "<skalBekreftesAvRevisor>") |> elem(0)
+      assert virksomhet_idx < avstemming_idx
+      assert avstemming_idx < revisor_idx
+    end
+
+    test "opplysningOmSkattesubjekt sits after formueOgGjeld per XSD child order" do
+      konfig = %SkattemeldingKonfig{formuesverdi_aksjer: Decimal.new("123456")}
+      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig)
+
+      formue_idx = :binary.match(xml, "<formueOgGjeld>") |> elem(0)
+      opplysning_idx = :binary.match(xml, "<opplysningOmSkattesubjekt>") |> elem(0)
+      assert opplysning_idx > formue_idx
+    end
   end
 
   describe "generer_spesifikasjon_av_forhold_relevante_for_beskatning/1" do

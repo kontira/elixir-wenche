@@ -128,6 +128,7 @@ defmodule Wenche.SkattemeldingXml do
       |> generer_spesifikasjon_av_forhold_relevante_for_beskatning()
 
     formue_og_gjeld = formue_og_gjeld_block(regnskap, konfig)
+    opplysning_om_skattesubjekt = opplysning_om_skattesubjekt_block(konfig)
 
     """
     <?xml version="1.0" encoding="UTF-8"?>
@@ -137,6 +138,7 @@ defmodule Wenche.SkattemeldingXml do
     #{inntekt_og_underskudd}
     #{aksjespesifikasjon}
     #{formue_og_gjeld}
+    #{opplysning_om_skattesubjekt}
     </skattemelding>
     """
     |> String.trim()
@@ -212,6 +214,65 @@ defmodule Wenche.SkattemeldingXml do
         """
         |> String.trim_trailing()
     end
+  end
+
+  defp egenkapitalavstemming_block(%{utgaaende_ek: 0, inngaaende_ek: 0, endringer: []}), do: ""
+
+  defp egenkapitalavstemming_block(%{} = avstemming) do
+    endringer =
+      avstemming.endringer
+      |> Enum.map(fn e ->
+        """
+            <egenkapitalendring>
+              <id>#{e.id}</id>
+              <egenkapitalendringstype>
+                <egenkapitalendringstype>#{e.type}</egenkapitalendringstype>
+              </egenkapitalendringstype>
+              #{beloep_med_skattemessige("beloep", e.beloep)}
+            </egenkapitalendring>
+        """
+        |> String.trim_trailing()
+      end)
+      |> Enum.join("\n")
+
+    """
+      <egenkapitalavstemming>
+        #{beloep_med_skattemessige("inngaaendeEgenkapital", avstemming.inngaaende_ek)}
+        #{beloep_med_skattemessige("sumTilleggIEgenkapital", avstemming.sum_tillegg)}
+        #{beloep_med_skattemessige("sumFradragIEgenkapital", avstemming.sum_fradrag)}
+    #{endringer}
+        #{beloep_med_skattemessige("utgaaendeEgenkapital", avstemming.utgaaende_ek)}
+      </egenkapitalavstemming>
+    """
+    |> String.trim_trailing()
+  end
+
+  # Emits a `BeloepMedSkattemessigeEgenskaper` element — three nested
+  # `<beloep>` levels where the innermost is the decimal value
+  # (`BeloepMed2Desimaler`). Matches the same shape used by
+  # `balanseforekomst/3`.
+  defp beloep_med_skattemessige(tag, value) do
+    """
+    <#{tag}>
+          <beloep>
+            <beloep>#{format_beloep(value)}</beloep>
+          </beloep>
+        </#{tag}>
+    """
+    |> String.trim()
+  end
+
+  defp opplysning_om_skattesubjekt_block(konfig) do
+    er_boersnotert = Map.get(konfig || %{}, :er_boersnotert, false)
+    har_ytelse = Map.get(konfig || %{}, :har_ytelse_mellom_aksjonaer_og_selskap, false)
+
+    """
+      <opplysningOmSkattesubjekt>
+        <erBoersnotert>#{er_boersnotert}</erBoersnotert>
+        <harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>#{har_ytelse}</harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>
+      </opplysningOmSkattesubjekt>
+    """
+    |> String.trim_trailing()
   end
 
   defp overstyrt_heltall(tag, value) do
@@ -482,6 +543,11 @@ defmodule Wenche.SkattemeldingXml do
       |> Keyword.get(:permanent_forskjeller, [])
       |> generer_permanent_forskjell_block()
 
+    egenkapitalavstemming =
+      regnskap
+      |> Wenche.Skattemelding.beregn_egenkapitalavstemming()
+      |> egenkapitalavstemming_block()
+
     parts =
       [
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
@@ -492,6 +558,7 @@ defmodule Wenche.SkattemeldingXml do
         balanseregnskap_block(b),
         permanent_forskjeller,
         virksomhet_block(aar, kontaktperson),
+        egenkapitalavstemming,
         "  <skalBekreftesAvRevisor>#{skal_revisor}</skalBekreftesAvRevisor>",
         "</naeringsspesifikasjon>"
       ]

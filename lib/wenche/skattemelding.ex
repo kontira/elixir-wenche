@@ -408,6 +408,108 @@ defmodule Wenche.Skattemelding do
     }
   end
 
+  @doc """
+  Builds the data needed for `<egenkapitalavstemming>` in
+  næringsspesifikasjonen.
+
+  Returns a map with:
+
+    * `:inngaaende_ek` — IB total egenkapital in whole kroner.
+    * `:utgaaende_ek` — UB total egenkapital in whole kroner.
+    * `:endringer` — list of `%{id, type, kategori, beloep}` rows describing
+      each årets endring. `beloep` is always emitted as a positive integer;
+      `kategori` (`:tillegg` or `:fradrag`) tells the consumer which sign
+      to apply. `type` is a kode from the `2025_egenkapitalendringstype`
+      kodeliste.
+    * `:sum_tillegg`, `:sum_fradrag` — derived sums for the optional XSD
+      elements.
+
+  When the regnskap has no fjoraar data, IB is `0` and årsresultat is
+  treated as the entire build-up of EK.
+  """
+  def beregn_egenkapitalavstemming(%Aarsregnskap{} = regnskap) do
+    rf_1028 = beregn_skattemelding(regnskap.resultatregnskap, %SkattemeldingKonfig{})
+
+    aarsresultat =
+      Resultatregnskap.resultat_foer_skatt(regnskap.resultatregnskap) - rf_1028.beregnet_skatt
+
+    ek_ub = regnskap.balanse.egenkapital_og_gjeld.egenkapital
+    utgaaende_ek = ek_ub.aksjekapital + ek_ub.overkursfond + ek_ub.annen_egenkapital
+
+    har_fjoraar =
+      regnskap.foregaaende_aar_resultat != %Resultatregnskap{} or
+        regnskap.foregaaende_aar_balanse != %Balanse{}
+
+    {inngaaende_ek, kapital_delta, annen_residual} =
+      if har_fjoraar do
+        ek_ib = regnskap.foregaaende_aar_balanse.egenkapital_og_gjeld.egenkapital
+        ib = ek_ib.aksjekapital + ek_ib.overkursfond + ek_ib.annen_egenkapital
+
+        kap_delta =
+          ek_ub.aksjekapital - ek_ib.aksjekapital +
+            (ek_ub.overkursfond - ek_ib.overkursfond)
+
+        residual =
+          ek_ub.annen_egenkapital -
+            (ek_ib.annen_egenkapital + aarsresultat - regnskap.utbytte_utbetalt)
+
+        {ib, kap_delta, residual}
+      else
+        {0, 0, ek_ub.annen_egenkapital - (aarsresultat - regnskap.utbytte_utbetalt)}
+      end
+
+    endringer =
+      []
+      |> maybe_add_endring(aarsresultat > 0, "aaretsOverskudd", :tillegg, aarsresultat)
+      |> maybe_add_endring(aarsresultat < 0, "aaretsUnderskudd", :fradrag, -aarsresultat)
+      |> maybe_add_endring(
+        regnskap.utbytte_utbetalt > 0,
+        "avsattEllerForventetUtbytte",
+        :fradrag,
+        regnskap.utbytte_utbetalt
+      )
+      |> maybe_add_endring(kapital_delta > 0, "kontantinnskudd", :tillegg, kapital_delta)
+      |> maybe_add_endring(
+        kapital_delta < 0,
+        "nedsettelseAvAksjekapitalOgUtdelingAvOverkursKontanter",
+        :fradrag,
+        -kapital_delta
+      )
+      |> maybe_add_endring(
+        annen_residual > 0,
+        "annenPositivEndringIEgenkapital",
+        :tillegg,
+        annen_residual
+      )
+      |> maybe_add_endring(
+        annen_residual < 0,
+        "annenNegativEndringIEgenkapital",
+        :fradrag,
+        -annen_residual
+      )
+      |> Enum.with_index(1)
+      |> Enum.map(fn {row, i} -> Map.put(row, :id, Integer.to_string(i)) end)
+
+    sum_tillegg =
+      endringer |> Enum.filter(&(&1.kategori == :tillegg)) |> Enum.map(& &1.beloep) |> Enum.sum()
+
+    sum_fradrag =
+      endringer |> Enum.filter(&(&1.kategori == :fradrag)) |> Enum.map(& &1.beloep) |> Enum.sum()
+
+    %{
+      inngaaende_ek: inngaaende_ek,
+      utgaaende_ek: utgaaende_ek,
+      endringer: endringer,
+      sum_tillegg: sum_tillegg,
+      sum_fradrag: sum_fradrag
+    }
+  end
+
+  defp maybe_add_endring(list, false, _type, _kategori, _beloep), do: list
+
+  defp maybe_add_endring(list, true, type, kategori, beloep),
+    do: list ++ [%{type: type, kategori: kategori, beloep: beloep}]
+
   defp beregn_advarsler(b, beregnet_skatt) do
     i_balanse = Balanse.er_i_balanse?(b)
     differanse = Balanse.differanse(b)

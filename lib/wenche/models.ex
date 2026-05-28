@@ -423,7 +423,17 @@ defmodule Wenche.Models do
               #   :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter (add)
               permanent_forskjeller: nil,
               formuesverdi_aksjer: nil,
-              samlet_verdi_bak_aksjene: nil
+              samlet_verdi_bak_aksjene: nil,
+              # Whether the company is publicly listed. Emitted as
+              # `<opplysningOmSkattesubjekt><erBoersnotert>` in the
+              # skattemelding XML. Defaults to false (the common case for
+              # Norwegian private AS).
+              er_boersnotert: false,
+              # Whether there are loans, guarantees, asset realizations or
+              # similar ytelser between shareholder/nærstående and the
+              # company or its datterselskap. Emitted as
+              # `<harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>`.
+              har_ytelse_mellom_aksjonaer_og_selskap: false
 
     @type permanent_forskjell :: %{type: atom(), beloep: Decimal.t() | integer()}
 
