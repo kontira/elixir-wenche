@@ -273,6 +273,49 @@ defmodule Wenche.SkattemeldingXmlTest do
                "<harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>true</harYtelseMellomAksjonaerEllerNaerstaaendeOgSelskapEllerSelskapetsDatterselskap>"
     end
 
+    test "naeringsspesifikasjon emits beregnetNaeringsinntekt + forskjell sums with permanent_forskjeller" do
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(
+          sample_regnskap(),
+          permanent_forskjeller: [
+            %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: 50_429},
+            %{type: :skattepliktigDelAvUtbytterOgUtdelinger, beloep: 1_513}
+          ]
+        )
+
+      assert xml =~ "<beregnetNaeringsinntekt>"
+      assert xml =~ "<fordeltBeregnetNaeringsinntektForUpersonligSkattepliktig>"
+      assert xml =~ "<fordeltSkattemessigResultat>"
+      assert xml =~ "<fordeltSkattemessigResultatEtterKorreksjon>"
+      assert xml =~ "<skattemessigResultat>"
+      assert xml =~ "<sumTilleggINaeringsinntekt>"
+      assert xml =~ "<sumFradragINaeringsinntekt>"
+    end
+
+    test "skattemelding emits derived inntektOgUnderskudd fields" do
+      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), %SkattemeldingKonfig{})
+
+      assert xml =~ "<inntektOgUnderskudd>"
+      assert xml =~ "<inntektFoerFradragForEventueltAvgittKonsernbidrag>"
+    end
+
+    test "skattemelding emits samletUnderskudd + fremfoerbart when permanent_forskjeller flip to loss" do
+      konfig = %SkattemeldingKonfig{
+        underskudd_til_fremfoering: 13_266,
+        # Big fradrag → produces a current-year loss
+        permanent_forskjeller: [
+          %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: 1_000_000}
+        ]
+      }
+
+      xml = SkattemeldingXml.generer_skattemelding_xml(sample_regnskap(), konfig)
+
+      assert xml =~ "<samletUnderskudd>"
+      assert xml =~ "<inntektsfradrag>"
+      assert xml =~ "<fremfoerbartUnderskuddIInntekt>"
+      assert xml =~ "<fremfoertUnderskuddFraTidligereAar>"
+    end
+
     test "naeringsspesifikasjon emits egenkapitalavstemming after virksomhet" do
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
@@ -430,15 +473,27 @@ defmodule Wenche.SkattemeldingXmlTest do
       assert xml =~ "<inntektsaar>2025</inntektsaar>"
     end
 
-    test "does NOT emit derived sum/computed fields" do
+    test "emits derived sums Skatteetaten flags as missing when omitted" do
+      # Previously this test asserted we DID NOT emit derived sums on the
+      # theory that SKD computes them anyway. /valider's tilbakemelding
+      # proved that wrong — SKD flags omissions as `manglerNaeringsopplysninger`
+      # avvik, so we now emit them on every submission.
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
 
-      refute xml =~ "<sumDriftsinntekt"
-      refute xml =~ "<sumDriftskostnad"
-      refute xml =~ "<sumFinansinntekt"
-      refute xml =~ "<sumFinanskostnad"
-      refute xml =~ "<driftsresultat"
-      refute xml =~ "<aarsresultat"
+      assert xml =~ "<sumDriftsinntekt>"
+      assert xml =~ "<sumDriftskostnad>"
+      assert xml =~ "<sumFinansinntekt>"
+      assert xml =~ "<sumFinanskostnad>"
+      assert xml =~ "<aarsresultat>"
+      assert xml =~ "<sumBalanseverdiForAnleggsmiddel>"
+      assert xml =~ "<sumBalanseverdiForOmloepsmiddel>"
+      assert xml =~ "<sumBalanseverdiForEiendel>"
+      assert xml =~ "<sumLangsiktigGjeld>"
+      assert xml =~ "<sumKortsiktigGjeld>"
+      assert xml =~ "<sumEgenkapital>"
+      assert xml =~ "<sumGjeldOgEgenkapital>"
+      assert xml =~ "<beregnetNaeringsinntekt>"
+      assert xml =~ "<skattemessigResultat>"
     end
 
     test "emits virksomhet with correctly-spelled elements" do

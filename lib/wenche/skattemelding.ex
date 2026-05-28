@@ -229,6 +229,62 @@ defmodule Wenche.Skattemelding do
   defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
   defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
 
+  @doc """
+  Returns `{sum_tillegg, sum_fradrag}` as positive integers from a list of
+  permanent forskjeller. Used by the XML emitter to populate the derived
+  `<sumTilleggINaeringsinntekt>` / `<sumFradragINaeringsinntekt>` elements
+  Skatteetaten flags as missing.
+  """
+  def permanent_forskjeller_tillegg_fradrag([]), do: {0, 0}
+
+  def permanent_forskjeller_tillegg_fradrag(pf) when is_list(pf) do
+    Enum.reduce(pf, {Decimal.new(0), Decimal.new(0)}, fn entry, {t, f} ->
+      case entry do
+        %{type: :tilbakefoeringAvInntektsfoertUtbytte, beloep: b} ->
+          {t, Decimal.add(f, to_decimal(b))}
+
+        %{type: :skattepliktigDelAvUtbytterOgUtdelinger, beloep: b} ->
+          {Decimal.add(t, to_decimal(b)), f}
+
+        %{type: :regnskapsmessigGevinstVedRealisasjonAvFinansielleInstrumenter, beloep: b} ->
+          {t, Decimal.add(f, to_decimal(b))}
+
+        %{type: :regnskapsmessigTapVedRealisasjonAvFinansielleInstrumenter, beloep: b} ->
+          {Decimal.add(t, to_decimal(b)), f}
+
+        _ ->
+          {t, f}
+      end
+    end)
+    |> then(fn {t, f} ->
+      {t |> Decimal.round(0, :half_up) |> Decimal.to_integer(),
+       f |> Decimal.round(0, :half_up) |> Decimal.to_integer()}
+    end)
+  end
+
+  @doc """
+  Computes the skattepliktig næringsinntekt brutto (the "skattemessig
+  resultat") for a given regnskap and permanent_forskjeller list.
+
+  Used by the XML emitter to populate `<beregnetNaeringsinntekt>` /
+  `<skattemessigResultat>` and the underskudd-derived elements
+  Skatteetaten flags as missing. Mirrors what `beregn/2` already
+  computes internally for `rf_1028.skattepliktig_inntekt_brutto`.
+  """
+  def derive_skattepliktig_brutto(%Aarsregnskap{} = regnskap, permanent_forskjeller)
+      when is_list(permanent_forskjeller) do
+    r = regnskap.resultatregnskap
+    driftsresultat = Resultatregnskap.driftsresultat(r)
+    utbytte = r.finansposter.utbytte_fra_datterselskap
+    andre_finansinntekter = r.finansposter.andre_finansinntekter
+    fin_kostnader = Finansposter.sum_kostnader(r.finansposter)
+
+    regnskapsmessig = driftsresultat + utbytte + andre_finansinntekter - fin_kostnader
+    regnskapsmessig + permanent_forskjell_adjustment(permanent_forskjeller)
+  end
+
+  def derive_skattepliktig_brutto(regnskap, _), do: derive_skattepliktig_brutto(regnskap, [])
+
   defp beregn_fritaksmetoden(konfig, utbytte)
        when konfig.anvend_fritaksmetoden and utbytte > 0 do
     if konfig.eierandel_datterselskap >= 90 do

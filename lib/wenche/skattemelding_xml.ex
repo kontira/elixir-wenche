@@ -106,21 +106,26 @@ defmodule Wenche.SkattemeldingXml do
         Map.get(konfig || %{}, :underskudd_til_fremfoering, 0)
       )
 
+    pf_entries =
+      Keyword.get(
+        opts,
+        :permanent_forskjeller,
+        Map.get(konfig || %{}, :permanent_forskjeller, [])
+      )
+      |> List.wrap()
+
+    skattepliktig_brutto = Wenche.Skattemelding.derive_skattepliktig_brutto(regnskap, pf_entries)
+    aarets_underskudd = max(-skattepliktig_brutto, 0)
+    inntekt_foer_fradrag = skattepliktig_brutto
+    fremfoerbart = fremfoert + aarets_underskudd
+
     inntekt_og_underskudd =
-      if fremfoert > 0 do
-        """
-          <inntektOgUnderskudd>
-            <underskuddTilFremfoering>
-              <fremfoertUnderskuddFraTidligereAar>
-                <beloepSomHeltall>#{fremfoert}</beloepSomHeltall>
-              </fremfoertUnderskuddFraTidligereAar>
-            </underskuddTilFremfoering>
-          </inntektOgUnderskudd>
-        """
-        |> String.trim_trailing()
-      else
-        ""
-      end
+      inntekt_og_underskudd_block(
+        fremfoert,
+        fremfoerbart,
+        aarets_underskudd,
+        inntekt_foer_fradrag
+      )
 
     aksjespesifikasjon =
       opts
@@ -260,6 +265,80 @@ defmodule Wenche.SkattemeldingXml do
         </#{tag}>
     """
     |> String.trim()
+  end
+
+  # Emits `<inntektOgUnderskudd>` with both the prior-year carryforward and
+  # the derived fields SKD flags as `manglerSkattemelding` when omitted:
+  # `samletUnderskudd`, `inntektsfradrag/underskudd`,
+  # `inntektFoerFradragForEventueltAvgittKonsernbidrag`,
+  # `fremfoerbartUnderskuddIInntekt`.
+  #
+  # `fremfoert`  — prior-year carryforward, integer ≥ 0
+  # `fremfoerbart` — fremfoert + this year's new loss (rolled forward)
+  # `aarets_underskudd` — current year's loss, integer ≥ 0
+  # `inntekt_foer_fradrag` — skattepliktig brutto (signed)
+  defp inntekt_og_underskudd_block(fremfoert, fremfoerbart, aarets_underskudd, inntekt) do
+    fremfoert_block =
+      if fremfoert > 0 do
+        "<fremfoertUnderskuddFraTidligereAar><beloepSomHeltall>#{fremfoert}</beloepSomHeltall></fremfoertUnderskuddFraTidligereAar>"
+      else
+        ""
+      end
+
+    fremfoerbart_block =
+      if fremfoerbart > 0 do
+        "<fremfoerbartUnderskuddIInntekt><beloep><beloepSomHeltall>#{fremfoerbart}</beloepSomHeltall></beloep></fremfoerbartUnderskuddIInntekt>"
+      else
+        ""
+      end
+
+    underskudd_til_fremfoering_xml =
+      [fremfoert_block, fremfoerbart_block]
+      |> Enum.reject(&(&1 == ""))
+      |> case do
+        [] ->
+          ""
+
+        parts ->
+          "    <underskuddTilFremfoering>\n      " <>
+            Enum.join(parts, "\n      ") <> "\n    </underskuddTilFremfoering>"
+      end
+
+    inntektsfradrag_xml =
+      if aarets_underskudd > 0 do
+        """
+            <inntektsfradrag>
+              <underskudd>
+                <beloepSomHeltall>#{aarets_underskudd}</beloepSomHeltall>
+              </underskudd>
+            </inntektsfradrag>
+        """
+        |> String.trim_trailing()
+      else
+        ""
+      end
+
+    inntekt_foer_xml =
+      "    <inntektFoerFradragForEventueltAvgittKonsernbidrag><beloepSomHeltall>#{inntekt}</beloepSomHeltall></inntektFoerFradragForEventueltAvgittKonsernbidrag>"
+
+    samlet_underskudd_xml =
+      if aarets_underskudd > 0 do
+        "    <samletUnderskudd><beloep><beloepSomHeltall>#{aarets_underskudd}</beloepSomHeltall></beloep></samletUnderskudd>"
+      else
+        ""
+      end
+
+    inner =
+      [
+        underskudd_til_fremfoering_xml,
+        inntektsfradrag_xml,
+        inntekt_foer_xml,
+        samlet_underskudd_xml
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    "  <inntektOgUnderskudd>\n" <> inner <> "\n  </inntektOgUnderskudd>"
   end
 
   defp opplysning_om_skattesubjekt_block(konfig) do
@@ -538,10 +617,11 @@ defmodule Wenche.SkattemeldingXml do
     skal_revisor = if regnskap.revideres, do: "true", else: "false"
     kontaktperson = Keyword.get(opts, :kontaktperson)
 
-    permanent_forskjeller =
-      opts
-      |> Keyword.get(:permanent_forskjeller, [])
-      |> generer_permanent_forskjell_block()
+    pf_entries = Keyword.get(opts, :permanent_forskjeller, [])
+    permanent_forskjeller = generer_permanent_forskjell_block(pf_entries)
+
+    skattepliktig_brutto = Wenche.Skattemelding.derive_skattepliktig_brutto(regnskap, pf_entries)
+    beregnet_naeringsinntekt = beregnet_naeringsinntekt_block(skattepliktig_brutto)
 
     egenkapitalavstemming =
       regnskap
@@ -556,6 +636,7 @@ defmodule Wenche.SkattemeldingXml do
         "  <inntektsaar>#{aar}</inntektsaar>",
         resultatregnskap_block(r),
         balanseregnskap_block(b),
+        beregnet_naeringsinntekt,
         permanent_forskjeller,
         virksomhet_block(aar, kontaktperson),
         egenkapitalavstemming,
@@ -606,10 +687,39 @@ defmodule Wenche.SkattemeldingXml do
     if forekomster == "" do
       ""
     else
+      {sum_tillegg, sum_fradrag} =
+        Wenche.Skattemelding.permanent_forskjeller_tillegg_fradrag(entries)
+
+      sums =
+        "\n    " <>
+          beloep_med_skattemessige("sumTilleggINaeringsinntekt", sum_tillegg) <>
+          "\n    " <>
+          beloep_med_skattemessige("sumFradragINaeringsinntekt", sum_fradrag)
+
       "  <forskjellMellomRegnskapsmessigOgSkattemessigVerdi>\n" <>
         forekomster <>
+        sums <>
         "\n  </forskjellMellomRegnskapsmessigOgSkattemessigVerdi>"
     end
+  end
+
+  # Emits the optional `<beregnetNaeringsinntekt>` block. SKD computes this
+  # itself in /valider but flags it as `manglerNaeringsopplysninger` when
+  # missing from the submission. We always emit it once we have a regnskap
+  # — fordeltSkattemessigResultat at id="1" carries the full year for an
+  # ordinary AS (single virksomhet).
+  defp beregnet_naeringsinntekt_block(skattepliktig_brutto) do
+    """
+      <beregnetNaeringsinntekt>
+        <fordeltBeregnetNaeringsinntektForUpersonligSkattepliktig>
+          <id>1</id>
+          #{beloep_med_skattemessige("fordeltSkattemessigResultat", skattepliktig_brutto)}
+          #{beloep_med_skattemessige("fordeltSkattemessigResultatEtterKorreksjon", skattepliktig_brutto)}
+        </fordeltBeregnetNaeringsinntektForUpersonligSkattepliktig>
+        #{beloep_med_skattemessige("skattemessigResultat", skattepliktig_brutto)}
+      </beregnetNaeringsinntekt>
+    """
+    |> String.trim_trailing()
   end
 
   defp normalize_permanent_forskjell(%{type: type, beloep: b} = entry) do
@@ -651,6 +761,7 @@ defmodule Wenche.SkattemeldingXml do
   end
 
   defp resultatregnskap_block(r) do
+    alias Wenche.Models.{Driftsinntekter, Driftskostnader, Finansposter, Resultatregnskap}
     di = r.driftsinntekter
     dk = r.driftskostnader
     fp = r.finansposter
@@ -679,12 +790,27 @@ defmodule Wenche.SkattemeldingXml do
       |> add_forekomst("kostnad", fp.rentekostnader, @kode_rentekostnader)
       |> add_forekomst("kostnad", fp.andre_finanskostnader, @kode_andre_finanskostnader)
 
+    sum_di = Driftsinntekter.sum(di)
+    sum_dk = Driftskostnader.sum(dk)
+    sum_fi = Finansposter.sum_inntekter(fp)
+    sum_fk = Finansposter.sum_kostnader(fp)
+    aarsresultat = Resultatregnskap.aarsresultat(r)
+
     inner =
       [
-        wrap_children("driftsinntekt", driftsinntekt_children),
-        wrap_children("driftskostnad", driftskostnad_children),
+        wrap_children("driftsinntekt", driftsinntekt_children,
+          sum_tag: "sumDriftsinntekt",
+          sum_value: sum_di
+        ),
+        wrap_children("driftskostnad", driftskostnad_children,
+          sum_tag: "sumDriftskostnad",
+          sum_value: sum_dk
+        ),
+        "    " <> beloep_med_skattemessige("sumFinansinntekt", sum_fi),
+        "    " <> beloep_med_skattemessige("sumFinanskostnad", sum_fk),
         wrap_forekomster("finansinntekt", finansinntekt_forekomster),
-        wrap_forekomster("finanskostnad", finanskostnad_forekomster)
+        wrap_forekomster("finanskostnad", finanskostnad_forekomster),
+        "    " <> beloep_med_skattemessige("aarsresultat", aarsresultat)
       ]
       |> Enum.reject(&(&1 == ""))
 
@@ -726,15 +852,24 @@ defmodule Wenche.SkattemeldingXml do
     acc ++ [resultatforekomst(child_tag, beloep, kode)]
   end
 
-  defp wrap_children(_tag, []), do: ""
+  defp wrap_children(_tag, [], _opts), do: ""
 
-  defp wrap_children(tag, children) do
+  defp wrap_children(tag, children, opts) do
+    sum_xml =
+      case Keyword.get(opts, :sum_tag) do
+        nil ->
+          ""
+
+        sum_tag ->
+          "      " <> beloep_med_skattemessige(sum_tag, Keyword.fetch!(opts, :sum_value)) <> "\n"
+      end
+
     inner =
       Enum.map_join(children, "\n", fn {wrapper_tag, forekomst_xml} ->
         "      <#{wrapper_tag}>\n#{forekomst_xml}\n      </#{wrapper_tag}>"
       end)
 
-    "    <#{tag}>\n#{inner}\n    </#{tag}>"
+    "    <#{tag}>\n#{sum_xml}#{inner}\n    </#{tag}>"
   end
 
   defp wrap_forekomster(_tag, []), do: ""
@@ -780,6 +915,16 @@ defmodule Wenche.SkattemeldingXml do
   end
 
   defp balanseregnskap_block(b) do
+    alias Wenche.Models.{
+      Anleggsmidler,
+      Egenkapital,
+      EgenkapitalOgGjeld,
+      Eiendeler,
+      KortsiktigGjeld,
+      LangsiktigGjeld,
+      Omloepmidler
+    }
+
     am = b.eiendeler.anleggsmidler
     om = b.eiendeler.omloepmidler
     eog = b.egenkapital_og_gjeld
@@ -828,29 +973,50 @@ defmodule Wenche.SkattemeldingXml do
         @kode_annen_kortsiktig_gjeld
       )
 
+    sum_am = Anleggsmidler.sum(am)
+    sum_om = Omloepmidler.sum(om)
+    sum_lg = LangsiktigGjeld.sum(eog.langsiktig_gjeld)
+    sum_kg = KortsiktigGjeld.sum(eog.kortsiktig_gjeld)
+    sum_ek = Egenkapital.sum(eog.egenkapital)
+    sum_eiendel = Eiendeler.sum(b.eiendeler)
+    sum_gjeld_og_ek = EgenkapitalOgGjeld.sum(eog)
+
     anleggsmiddel_block =
       wrap_balanseverdi(
         "anleggsmiddel",
         "balanseverdiForAnleggsmiddel",
-        anleggsmidler_forekomster
+        anleggsmidler_forekomster,
+        sum_tag: "sumBalanseverdiForAnleggsmiddel",
+        sum_value: sum_am
       )
 
     omloepsmiddel_block =
       wrap_balanseverdi(
         "omloepsmiddel",
         "balanseverdiForOmloepsmiddel",
-        omloepsmidler_forekomster
+        omloepsmidler_forekomster,
+        sum_tag: "sumBalanseverdiForOmloepsmiddel",
+        sum_value: sum_om
       )
 
     gjeld_og_egenkapital_block =
       build_gjeld_og_egenkapital(
         langsiktig_gjeld_forekomster,
         kortsiktig_gjeld_forekomster,
-        egenkapital_forekomster
+        egenkapital_forekomster,
+        sum_lg: sum_lg,
+        sum_kg: sum_kg,
+        sum_ek: sum_ek
       )
 
     inner =
-      [anleggsmiddel_block, omloepsmiddel_block, gjeld_og_egenkapital_block]
+      [
+        anleggsmiddel_block,
+        omloepsmiddel_block,
+        gjeld_og_egenkapital_block,
+        "    " <> beloep_med_skattemessige("sumBalanseverdiForEiendel", sum_eiendel),
+        "    " <> beloep_med_skattemessige("sumGjeldOgEgenkapital", sum_gjeld_og_ek)
+      ]
       |> Enum.reject(&(&1 == ""))
 
     if inner == [] do
@@ -886,12 +1052,21 @@ defmodule Wenche.SkattemeldingXml do
     acc ++ [balanseforekomst(tag, beloep, kode)]
   end
 
-  defp wrap_balanseverdi(_outer_tag, _inner_tag, []), do: ""
+  defp wrap_balanseverdi(_outer_tag, _inner_tag, [], _opts), do: ""
 
-  defp wrap_balanseverdi(outer_tag, inner_tag, forekomster) do
+  defp wrap_balanseverdi(outer_tag, inner_tag, forekomster, opts) do
+    sum_xml =
+      case Keyword.get(opts, :sum_tag) do
+        nil ->
+          ""
+
+        sum_tag ->
+          "      " <> beloep_med_skattemessige(sum_tag, Keyword.fetch!(opts, :sum_value)) <> "\n"
+      end
+
     """
         <#{outer_tag}>
-          <#{inner_tag}>
+    #{sum_xml}      <#{inner_tag}>
     #{Enum.join(forekomster, "\n")}
           </#{inner_tag}>
         </#{outer_tag}>
@@ -899,8 +1074,28 @@ defmodule Wenche.SkattemeldingXml do
     |> String.trim_trailing()
   end
 
-  defp build_gjeld_og_egenkapital(lg, kg, ek) do
-    # XSD sequence: langsiktigGjeld, kortsiktigGjeld, egenkapital
+  defp build_gjeld_og_egenkapital(lg, kg, ek, sums) do
+    # XSD sequence: sumLangsiktigGjeld, sumKortsiktigGjeld, sumEgenkapital,
+    # langsiktigGjeld, kortsiktigGjeld, egenkapital. The sum-* elements are
+    # derived but SKD flags them as `manglerNaeringsopplysninger` when
+    # omitted.
+    sum_xml =
+      case sums do
+        [] ->
+          ""
+
+        _ ->
+          Enum.map_join(
+            [
+              {"sumLangsiktigGjeld", Keyword.get(sums, :sum_lg, 0)},
+              {"sumKortsiktigGjeld", Keyword.get(sums, :sum_kg, 0)},
+              {"sumEgenkapital", Keyword.get(sums, :sum_ek, 0)}
+            ],
+            "\n",
+            fn {tag, value} -> "      " <> beloep_med_skattemessige(tag, value) end
+          ) <> "\n"
+      end
+
     parts =
       []
       |> append_gjeld_group("langsiktigGjeld", "gjeld", lg)
@@ -910,7 +1105,8 @@ defmodule Wenche.SkattemeldingXml do
     if parts == [] do
       ""
     else
-      "    <gjeldOgEgenkapital>\n" <> Enum.join(parts, "\n") <> "\n    </gjeldOgEgenkapital>"
+      "    <gjeldOgEgenkapital>\n" <>
+        sum_xml <> Enum.join(parts, "\n") <> "\n    </gjeldOgEgenkapital>"
     end
   end
 
