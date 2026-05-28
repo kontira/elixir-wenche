@@ -132,6 +132,9 @@ defmodule Wenche.SkattemeldingXmlTest do
       assert xml =~ "<beloepSomHeltall>533457</beloepSomHeltall>"
       assert xml =~ "<samletGjeld>"
       assert xml =~ "<beloepSomHeltall>250000</beloepSomHeltall>"
+      assert xml =~ "<verdsettingAvAksje>"
+      assert xml =~ "<samletVerdiBakAksjeneISelskapet>"
+      assert xml =~ "<beloepSomHeltall>283457</beloepSomHeltall>"
       assert xml =~ "<erOverstyrt>"
       assert xml =~ "<boolsk>true</boolsk>"
     end

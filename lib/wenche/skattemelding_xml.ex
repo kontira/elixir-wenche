@@ -134,6 +134,7 @@ defmodule Wenche.SkattemeldingXml do
 
     formue_og_gjeld = formue_og_gjeld_block(regnskap, konfig)
     opplysning_om_skattesubjekt = opplysning_om_skattesubjekt_block(konfig)
+    verdsetting_av_aksje = verdsetting_av_aksje_block(regnskap, konfig)
 
     """
     <?xml version="1.0" encoding="UTF-8"?>
@@ -144,6 +145,7 @@ defmodule Wenche.SkattemeldingXml do
     #{aksjespesifikasjon}
     #{formue_og_gjeld}
     #{opplysning_om_skattesubjekt}
+    #{verdsetting_av_aksje}
     </skattemelding>
     """
     |> String.trim()
@@ -352,6 +354,21 @@ defmodule Wenche.SkattemeldingXml do
       </opplysningOmSkattesubjekt>
     """
     |> String.trim_trailing()
+  end
+
+  defp verdsetting_av_aksje_block(regnskap, konfig) do
+    case beregn_verdi_bak_aksjene(regnskap, konfig) do
+      nil ->
+        ""
+
+      verdi_bak_aksjene ->
+        """
+          <verdsettingAvAksje>
+            #{overstyrt_heltall("samletVerdiBakAksjeneISelskapet", verdi_bak_aksjene)}
+          </verdsettingAvAksje>
+        """
+        |> String.trim_trailing()
+    end
   end
 
   defp overstyrt_heltall(tag, value) do
