@@ -10,10 +10,15 @@ defmodule Wenche.AltinnParties do
   Endpoint: `GET /accessmanagement/api/v1/authorizedparties`
   """
 
+  @scope "altinn:accessmanagement/authorizedparties"
+
   @bases %{
     "test" => "https://platform.tt02.altinn.no",
     "prod" => "https://platform.altinn.no"
   }
+
+  @doc "The ID-porten OAuth scope required to call the authorized-parties endpoint."
+  def scope, do: @scope
 
   @doc """
   Returns all parties the authenticated user can represent in Altinn.
