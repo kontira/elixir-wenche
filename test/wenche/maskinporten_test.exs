@@ -79,6 +79,40 @@ defmodule Wenche.MaskinportenTest do
       assert auth_detail["systemuser_org"]["ID"] == "0192:912345678"
     end
 
+    test "includes resource claim when resource opt is provided", %{private_key_pem: pem} do
+      config = [
+        client_id: "test-client-id",
+        kid: "test-kid",
+        private_key_pem: pem,
+        env: "test"
+      ]
+
+      assert {:ok, jwt} =
+               Maskinporten.build_jwt_grant(config, "brreg:data:enhetsregisteret:roller:person:oppslag:fnr",
+                 resource: "https://data.ppe.brreg.no/enhetsregisteret/autorisert-api"
+               )
+
+      parts = String.split(jwt, ".")
+      payload = parts |> Enum.at(1) |> Base.url_decode64!(padding: false) |> Jason.decode!()
+
+      assert payload["resource"] == "https://data.ppe.brreg.no/enhetsregisteret/autorisert-api"
+    end
+
+    test "omits resource claim when resource opt is not provided", %{private_key_pem: pem} do
+      config = [
+        client_id: "test-client-id",
+        kid: "test-kid",
+        private_key_pem: pem,
+        env: "test"
+      ]
+
+      assert {:ok, jwt} = Maskinporten.build_jwt_grant(config, "altinn:instances.read")
+      parts = String.split(jwt, ".")
+      payload = parts |> Enum.at(1) |> Base.url_decode64!(padding: false) |> Jason.decode!()
+
+      refute Map.has_key?(payload, "resource")
+    end
+
     test "raises on missing config" do
       assert_raise KeyError, fn ->
         Maskinporten.build_jwt_grant([], "test:scope")

@@ -104,6 +104,7 @@ defmodule Wenche.Maskinporten do
   ## Options
 
   - `:org_nummer` — if provided, adds authorization_details for system user token
+  - `:resource` — if provided, sets the `resource` claim (required by some APIs, e.g. BRREG)
 
   Returns `{:ok, jwt_string}` or `{:error, reason}`.
   """
@@ -114,6 +115,7 @@ defmodule Wenche.Maskinporten do
     private_key_pem = Keyword.fetch!(config, :private_key_pem)
     audience = Map.fetch!(@maskinporten_urls, env) <> "/"
     org_nummer = Keyword.get(opts, :org_nummer)
+    resource = Keyword.get(opts, :resource)
 
     now = System.os_time(:second)
 
@@ -141,6 +143,8 @@ defmodule Wenche.Maskinporten do
       else
         claims
       end
+
+    claims = if resource, do: Map.put(claims, "resource", resource), else: claims
 
     signer = Joken.Signer.create("RS256", %{"pem" => private_key_pem}, %{"kid" => kid})
 
