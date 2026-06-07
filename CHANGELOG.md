@@ -20,8 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `generer_request_xml/3`. `Wenche.SkdSkattemeldingClient.hent_utkast_referanse_personlig/3`
   resolves the draft `partsreferanse` + dokumentreferanse.
 - Vendored `skattemelding_v13_ekstern.xsd` in `priv/xsd/skatteetaten/`.
+- `Wenche.Maskinporten.build_jwt_grant/3` accepts an optional `:resource` opt
+  that sets the resource claim in the JWT grant (required by BRREG's
+  authenticated roller API).
 
-## [0.2.0] - unreleased
+## [0.3.0] - 2026-05-28
 
 ### Added
 
