@@ -1183,6 +1183,30 @@ defmodule Wenche.SkattemeldingXmlTest do
       assert_xml_valid!(xml, "#{@xsd_dir}/naeringsspesifikasjon_v6_ekstern.xsd")
     end
 
+    @tag :xsd
+    test "ENK naeringsspesifikasjon (v6, skattepliktig_type: :personlig) validates" do
+      xml =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(
+          sample_regnskap(),
+          skattepliktig_type: :personlig
+        )
+
+      assert_xml_valid!(xml, "#{@xsd_dir}/naeringsspesifikasjon_v6_ekstern.xsd")
+    end
+
+    @tag :xsd
+    test "ENK personlig skattemelding (v13) validates" do
+      alias Wenche.SkattemeldingPersonligXml
+
+      xml =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(
+          sample_regnskap(),
+          partsreferanse: 9001
+        )
+
+      assert_xml_valid!(xml, "#{@xsd_dir}/skattemelding_v13_ekstern.xsd")
+    end
+
     defp assert_xml_valid!(xml, schema_path) do
       unless File.exists?(schema_path), do: flunk("Schema not found: #{schema_path}")
 
