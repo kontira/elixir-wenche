@@ -69,6 +69,13 @@ defmodule Wenche.SkattemeldingPersonlig do
   naering_id:}` — `partsnummer` carries the partsreferanse) so callers can build
   the XML without re-fetching. See `valider/3` / `send_inn/3` for the
   fetch-and-build flow.
+
+  ## Options
+
+  - `:partsidentifikator` — the tax subject's identifier (the ENK owner's
+    fnr/d-nummer) used for the envelope `<tin>`. Defaults to the org number.
+  - `:kontaktperson`, `:permanent_forskjeller` — forwarded to the
+    næringsspesifikasjon generator.
   """
   @spec bygg_xmls(Aarsregnskap.t(), map(), keyword()) ::
           {String.t(), String.t(), String.t()}
@@ -105,6 +112,9 @@ defmodule Wenche.SkattemeldingPersonlig do
   (unless a `:partsreferanse` is supplied in `opts`), builds the envelope, and
   posts it.
 
+  Pass `:partsidentifikator` (the ENK owner's fnr/d-nummer) so the draft lookup
+  and `/valider` are keyed by the tax subject rather than the org number.
+
   Returns `{:ok, validation_body}` or `{:error, reason}`.
   """
   @spec valider(Aarsregnskap.t(), SkdSkattemeldingClient.t(), keyword()) ::
@@ -112,11 +122,14 @@ defmodule Wenche.SkattemeldingPersonlig do
   def valider(%Aarsregnskap{} = regnskap, %SkdSkattemeldingClient{} = skd_client, opts \\ []) do
     aar = regnskap.regnskapsaar
     org = regnskap.selskap.org_nummer
+    # The draft lookup and /valider are keyed by the tax subject. For a personlig
+    # return that is the owner's fnr/d-nummer (:partsidentifikator), not the org.
+    subject = Keyword.get(opts, :partsidentifikator, org)
 
-    case resolve_utkast_referanse(opts, skd_client, aar, org) do
+    case resolve_utkast_referanse(opts, skd_client, aar, subject) do
       {:ok, ref} ->
         {_sm, _ne, request_xml} = bygg_xmls(regnskap, ref, opts)
-        SkdSkattemeldingClient.valider(skd_client, aar, org, request_xml)
+        SkdSkattemeldingClient.valider(skd_client, aar, subject, request_xml)
 
       {:error, reason} ->
         {:error, {:utkast_referanse_failed, reason}}
@@ -137,11 +150,14 @@ defmodule Wenche.SkattemeldingPersonlig do
   def send_inn(%Aarsregnskap{} = regnskap, %AltinnClient{} = client, opts \\ []) do
     aar = regnskap.regnskapsaar
     org = regnskap.selskap.org_nummer
+    subject = Keyword.get(opts, :partsidentifikator, org)
     skd_client = Keyword.get(opts, :skd_client)
 
-    case resolve_utkast_referanse(opts, skd_client, aar, org) do
+    case resolve_utkast_referanse(opts, skd_client, aar, subject) do
       {:ok, ref} ->
         {_sm, _ne, request_xml} = bygg_xmls(regnskap, ref, opts)
+        # NB: the Altinn instance is still created on the enterprise (org) as the
+        # avgiver/reportee — only the SKD draft + envelope tin use the subject.
         do_send_inn(client, org, aar, request_xml)
 
       {:error, reason} ->
@@ -192,7 +208,7 @@ defmodule Wenche.SkattemeldingPersonlig do
 
   # ── helpers ─────────────────────────────────────────────────────────
 
-  defp resolve_utkast_referanse(opts, skd_client, aar, org) do
+  defp resolve_utkast_referanse(opts, skd_client, aar, subject) do
     case Keyword.get(opts, :partsreferanse) do
       partsreferanse when is_integer(partsreferanse) ->
         {:ok,
@@ -204,16 +220,21 @@ defmodule Wenche.SkattemeldingPersonlig do
 
       _ ->
         if is_nil(skd_client) do
-          {:ok, %{partsnummer: org, skattemelding_id: nil, naering_id: nil}}
+          {:ok, %{partsnummer: subject, skattemelding_id: nil, naering_id: nil}}
         else
-          SkdSkattemeldingClient.hent_utkast_referanse_personlig(skd_client, aar, org)
+          SkdSkattemeldingClient.hent_utkast_referanse_personlig(skd_client, aar, subject)
         end
     end
   end
 
   defp request_envelope_opts(opts, aar, org, ref) do
+    # For a personlig (ENK) return the tax subject is the owner, not the
+    # enterprise — callers pass the owner's fnr/d-nummer as :partsidentifikator.
+    # Falls back to the org number for backward compatibility.
+    tin = Keyword.get(opts, :partsidentifikator, org)
+
     base =
-      [inntektsaar: aar, tin: org, skattemelding_dokumenttype: @dokumenttype]
+      [inntektsaar: aar, tin: tin, skattemelding_dokumenttype: @dokumenttype]
       |> maybe_put(:opprettet_av, Keyword.get(opts, :opprettet_av))
       |> maybe_put(:innsendingstype, Keyword.get(opts, :innsendingstype))
       |> maybe_put(:innsendingsformaal, Keyword.get(opts, :innsendingsformaal))

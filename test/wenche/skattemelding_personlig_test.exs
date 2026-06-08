@@ -188,6 +188,49 @@ defmodule Wenche.SkattemeldingPersonligTest do
                SkattemeldingPersonlig.valider(sample_regnskap(), client())
     end
 
+    test "keys the draft lookup, /valider and <tin> on :partsidentifikator (owner fnr)",
+         %{wrapper: wrapper} do
+      response_ok = """
+      <skattemeldingOgNaeringsspesifikasjonResponse xmlns="no:skatteetaten:fastsetting:formueinntekt:skattemeldingognaeringsspesifikasjon:response:v2">
+        <resultatAvValidering>validertUtenFeil</resultatAvValidering>
+      </skattemeldingOgNaeringsspesifikasjonResponse>
+      """
+
+      ref = make_ref()
+
+      Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
+        case conn.method do
+          "GET" ->
+            # Draft is fetched for the owner (fnr), not the org number.
+            assert conn.request_path =~ "/2025/12345678901"
+            refute conn.request_path =~ "912345678"
+
+            conn
+            |> Plug.Conn.put_resp_content_type("application/xml")
+            |> Plug.Conn.resp(200, wrapper)
+
+          "POST" ->
+            assert conn.request_path =~ "/valider/2025/12345678901"
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            send(self(), {ref, body})
+
+            conn
+            |> Plug.Conn.put_resp_content_type("application/xml")
+            |> Plug.Conn.resp(200, response_ok)
+        end
+      end)
+
+      assert {:ok, _body} =
+               SkattemeldingPersonlig.valider(sample_regnskap(), client(),
+                 partsidentifikator: "12345678901"
+               )
+
+      assert_received {^ref, posted}
+      # Envelope identifies the taxpayer by the owner's fnr, not the org number.
+      assert posted =~ "<tin>12345678901</tin>"
+      refute posted =~ "<tin>912345678</tin>"
+    end
+
     test "honors an explicit :partsreferanse opt without fetching the draft" do
       Req.Test.stub(Wenche.SkdSkattemeldingClient, fn conn ->
         refute conn.method == "GET"
