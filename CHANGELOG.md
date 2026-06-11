@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `skattemelding_dokumenttype: "skattemeldingPersonlig"` to
   `generer_request_xml/3`. `Wenche.SkdSkattemeldingClient.hent_utkast_referanse_personlig/3`
   resolves the draft `partsreferanse` + dokumentreferanse.
+- **Fremførbar negativ personinntekt (ENK, skatteloven § 12-13).**
+  `Wenche.SkattemeldingPersonligXml.generer_skattemelding_personlig_xml/2` (and
+  `Wenche.SkattemeldingPersonlig.bygg_xmls/3`) accept
+  `:fremfoerbar_negativ_personinntekt` — a positive integer kroner of negative
+  beregnet personinntekt carried forward from earlier years. When supplied it
+  emits a `naering/naeringsinntektMv/samordnetPersoninntekt/fremfoerbarNegativPersoninntektFraTidligereAar`
+  entry (joined to the næringsspesifikasjon's `fordeltBeregnetPersoninntekt` via
+  `identifikatorForFordeltBeregnetPersoninntekt`, with `naeringstype` defaulting
+  to `annenNaering`); Skatteetaten derives the samordning and final
+  `personinntekt` (all `erAvledet`). Without it the personlig shell stays
+  minimal. This is the ENK carry-loss-forward an AS has no analogue for —
+  distinct from the § 14-6 underskudd til fremføring on alminnelig inntekt,
+  which Skatteetaten pre-fills.
 - Vendored `skattemelding_v13_ekstern.xsd` in `priv/xsd/skatteetaten/`.
 - `Wenche.Maskinporten.build_jwt_grant/3` accepts an optional `:resource` opt
   that sets the resource claim in the JWT grant (required by BRREG's

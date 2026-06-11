@@ -82,6 +82,30 @@ defmodule Wenche.SkattemeldingPersonligTest do
     end
   end
 
+  describe "bygg_xmls/3 forwards :fremfoerbar_negativ_personinntekt" do
+    @ref %{partsnummer: 4711, skattemelding_id: nil, naering_id: nil}
+
+    test "emits the § 12-13 carry-forward in the personlig skattemelding" do
+      {sm, _ne, _req} =
+        SkattemeldingPersonlig.bygg_xmls(sample_regnskap(), @ref,
+          partsidentifikator: "12345678901",
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
+      assert sm =~ "<samordnetPersoninntekt>"
+      assert sm =~ "<beloepSomHeltall>50000</beloepSomHeltall>"
+    end
+
+    test "keeps the minimal shell when no carry-forward is supplied" do
+      {sm, _ne, _req} =
+        SkattemeldingPersonlig.bygg_xmls(sample_regnskap(), @ref,
+          partsidentifikator: "12345678901"
+        )
+
+      refute sm =~ "<naering>"
+    end
+  end
+
   describe "valider/3" do
     setup do
       inner_xml =
@@ -269,6 +293,36 @@ defmodule Wenche.SkattemeldingPersonligTest do
 
     test "returns an empty map when no EtterBeregning document is present" do
       assert SkattemeldingPersonlig.parse_etter_beregning("<resp/>") == %{}
+    end
+
+    test "extracts personinntekt and the § 12-13 carry-forward to next year" do
+      # Shape mirrors skattemelding_v13's SamordnetPersoninntekt: a negative
+      # personinntekt this year produces a positive aaretsFremfoerbareNegativPersoninntekt
+      # to carry to next year.
+      inner = """
+      <skattemelding>
+        <partsreferanse>9001</partsreferanse>
+        <inntektsaar>2025</inntektsaar>
+        <naering><naeringsinntektMv><samordnetPersoninntekt>
+          <aaretsFremfoerbareNegativPersoninntekt><beloep><beloepSomHeltall>30000</beloepSomHeltall></beloep></aaretsFremfoerbareNegativPersoninntekt>
+          <personinntekt><beloep><beloepSomHeltall>0</beloepSomHeltall></beloep></personinntekt>
+        </samordnetPersoninntekt></naeringsinntektMv></naering>
+      </skattemelding>
+      """
+
+      body = """
+      <resp><dokument>
+        <type>skattemeldingPersonligEtterBeregning</type>
+        <encoding>utf-8</encoding>
+        <content>#{Base.encode64(inner)}</content>
+      </dokument></resp>
+      """
+
+      assert %{
+               partsreferanse: 9001,
+               personinntekt: 0,
+               aarets_fremfoerbare_negativ_personinntekt: 30_000
+             } = SkattemeldingPersonlig.parse_etter_beregning(body)
     end
   end
 

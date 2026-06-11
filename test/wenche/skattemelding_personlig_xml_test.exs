@@ -18,7 +18,8 @@ defmodule Wenche.SkattemeldingPersonligXmlTest do
     LangsiktigGjeld,
     Omloepmidler,
     Resultatregnskap,
-    Selskap
+    Selskap,
+    SkattemeldingKonfig
   }
 
   @v13_ns "urn:no:skatteetaten:fastsetting:formueinntekt:skattemelding:ekstern:v13"
@@ -117,6 +118,139 @@ defmodule Wenche.SkattemeldingPersonligXmlTest do
       refute xml =~ "<partsnummer>"
       refute xml =~ "inntektOgUnderskudd"
     end
+
+    test "stays minimal (no naering block) without a carry-forward" do
+      xml = SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap())
+
+      refute xml =~ "<naering>"
+      refute xml =~ "samordnetPersoninntekt"
+    end
+
+    test "stays minimal when the carry-forward is zero or negative" do
+      for beloep <- [0, -1] do
+        xml =
+          SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+            fremfoerbar_negativ_personinntekt: beloep
+          )
+
+        refute xml =~ "<naering>"
+      end
+    end
+  end
+
+  describe "fremførbar negativ personinntekt (skatteloven § 12-13)" do
+    test "emits the carry-forward at the v13 samordnetPersoninntekt path" do
+      xml =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
+      assert xml =~ "<naering>"
+      assert xml =~ "<naeringsinntektMv>"
+      assert xml =~ "<samordnetPersoninntekt>"
+
+      assert xml =~
+               ~r{<fremfoerbarNegativPersoninntektFraTidligereAar>\s*<beloep>\s*<beloepSomHeltall>50000</beloepSomHeltall>}
+    end
+
+    test "joins to the næringsspesifikasjon via identifikatorForFordeltBeregnetPersoninntekt" do
+      # The næringsspesifikasjon mints "1" for the single ENK virksomhet; the
+      # personlig skattemelding must reference the same key so SKD can derive
+      # fordeltBeregnetPersoninntektFraNaeringsspesifikasjon onto this entry.
+      ne =
+        SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap(),
+          skattepliktig_type: :personlig
+        )
+
+      assert ne =~
+               ~r{<identifikatorForFordeltBeregnetPersoninntekt>\s*<tekst>1</tekst>}
+
+      sm =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
+      assert sm =~
+               "<identifikatorForFordeltBeregnetPersoninntekt>1</identifikatorForFordeltBeregnetPersoninntekt>"
+    end
+
+    test "defaults naeringstype to the annenNaering kodeliste code" do
+      xml =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
+      assert xml =~ "<naeringstype>annenNaering</naeringstype>"
+    end
+
+    test "honours a :naeringstype override" do
+      xml =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000,
+          naeringstype: "fiskeOgFangst"
+        )
+
+      assert xml =~ "<naeringstype>fiskeOgFangst</naeringstype>"
+      refute xml =~ "annenNaering"
+    end
+
+    test "does NOT emit the SKD-derived samordning results (those are erAvledet)" do
+      xml =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
+      # Only the input field is supplied; Skatteetaten derives the rest.
+      refute xml =~ "fordeltBeregnetPersoninntektFraNaeringsspesifikasjon"
+      refute xml =~ "personinntektFoerFremfoering"
+      refute xml =~ "<personinntekt>"
+    end
+  end
+
+  # An ENK is not a separate taxpayer, so it has NO AS-style corporate loss
+  # carryforward. This documents the two ENK mechanisms and how they map onto
+  # the XML, contrasted with the AS (upersonlig) flow.
+  describe "ENK vs AS carry-loss-forward semantics" do
+    test "AS carries its corporate underskudd via fremfoertUnderskuddFraTidligereAar" do
+      # The upersonlig (AS) skattemelding is where a prior-year corporate loss
+      # (skatteloven § 14-6) is submitted by the filing system — the ENK flow
+      # has no equivalent submitted field.
+      as_sm =
+        SkattemeldingXml.generer_skattemelding_xml(
+          sample_regnskap(),
+          %SkattemeldingKonfig{underskudd_til_fremfoering: 80_000}
+        )
+
+      assert as_sm =~ "<fremfoertUnderskuddFraTidligereAar>"
+      assert as_sm =~ "<beloepSomHeltall>80000</beloepSomHeltall>"
+    end
+
+    test "ENK does NOT submit a corporate-style underskudd in the skattemelding" do
+      # § 14-6 underskudd til fremføring on the owner's alminnelig inntekt is
+      # assessed and pre-filled by Skatteetaten — the ENK shell never carries
+      # fremfoertUnderskuddFraTidligereAar.
+      enk_sm =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
+      refute enk_sm =~ "fremfoertUnderskuddFraTidligereAar"
+    end
+
+    test "ENK carries forward negative personinntekt (§ 12-13), AS has no personinntekt" do
+      enk_sm =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
+      # The ENK-only mechanism: a separate, ring-fenced carryforward on the
+      # personinntekt base (foretaksmodellen), which an AS has no analogue for.
+      assert enk_sm =~ "fremfoerbarNegativPersoninntektFraTidligereAar"
+
+      as_ne = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+      refute as_ne =~ "fremfoerbarNegativPersoninntekt"
+      refute as_ne =~ "samordnetPersoninntekt"
+    end
   end
 
   describe "naeringsspesifikasjon with skattepliktig_type: :personlig" do
@@ -210,6 +344,16 @@ defmodule Wenche.SkattemeldingPersonligXmlTest do
     @tag :xsd
     test "personlig skattemelding (v13) validates" do
       xml = SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap())
+      assert_xml_valid!(xml, "#{@xsd_dir}/skattemelding_v13_ekstern.xsd")
+    end
+
+    @tag :xsd
+    test "personlig skattemelding (v13) with fremførbar negativ personinntekt validates" do
+      xml =
+        SkattemeldingPersonligXml.generer_skattemelding_personlig_xml(sample_regnskap(),
+          fremfoerbar_negativ_personinntekt: 50_000
+        )
+
       assert_xml_valid!(xml, "#{@xsd_dir}/skattemelding_v13_ekstern.xsd")
     end
 
