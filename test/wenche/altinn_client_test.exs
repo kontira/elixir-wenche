@@ -100,7 +100,8 @@ defmodule Wenche.AltinnClientTest do
       client = AltinnClient.new("test-token", env: "test", req_options: @struct_opts)
       instans = %{"id" => "50012345/abc-123"}
 
-      assert {:ok, _url} = AltinnClient.fullfoor_instans(client, "aarsregnskap", instans)
+      assert {:ok, %{inbox_url: _url, response: %{"ended" => "2025-01-15T12:00:00Z"}}} =
+               AltinnClient.fullfoor_instans(client, "aarsregnskap", instans)
     end
 
     test "oppdater_data_element passes req_options through" do

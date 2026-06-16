@@ -71,6 +71,9 @@ defmodule Wenche.MvaMeldingTest do
       assert result.avvik_ved_meldingslevering == "ok"
       assert result.avvik == []
       assert is_binary(result.raw_xml)
+      # The melding XML that was sent is surfaced for audit-trail persistence.
+      assert is_binary(result.request_xml)
+      assert result.request_xml =~ "<"
     end
 
     test "uses the documented production validation endpoint" do

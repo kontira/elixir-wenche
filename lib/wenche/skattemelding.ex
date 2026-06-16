@@ -59,7 +59,7 @@ defmodule Wenche.Skattemelding do
     SkattemeldingKonfig
   }
 
-  alias Wenche.{AltinnClient, SkattemeldingXml, SkdSkattemeldingClient}
+  alias Wenche.{AltinnClient, SkattemeldingXml, SkdSkattemeldingClient, SubmissionResult}
 
   @skattesats 0.22
 
@@ -732,7 +732,8 @@ defmodule Wenche.Skattemelding do
   - `:innsendingstype`, `:innsendingsformaal` — envelope overrides; see
     `SkattemeldingXml.generer_request_xml/3`.
 
-  Returns `{:ok, inbox_url}` or `{:error, reason}`.
+  Returns `{:ok, %Wenche.SubmissionResult{}}` (carrying the submitted XML
+  documents and the Altinn inbox URL) or `{:error, reason}`.
   """
   def send_inn(
         %Aarsregnskap{} = regnskap,
@@ -791,8 +792,19 @@ defmodule Wenche.Skattemelding do
            ),
          {:ok, _} <-
            AltinnClient.last_opp_skattemelding_konvolutt(client, instans, request_xml),
-         {:ok, _} <- AltinnClient.neste_prosesssteg(client, "skattemelding", instans) do
-      AltinnClient.fullfoor_instans(client, "skattemelding", instans)
+         {:ok, _} <- AltinnClient.neste_prosesssteg(client, "skattemelding", instans),
+         {:ok, %{inbox_url: inbox_url, response: response}} <-
+           AltinnClient.fullfoor_instans(client, "skattemelding", instans) do
+      {:ok,
+       %SubmissionResult{
+         documents: [
+           %{name: "skattemelding", content: skattemelding_xml},
+           %{name: "naering", content: naering_xml},
+           %{name: "request", content: request_xml}
+         ],
+         response: response,
+         reference: inbox_url
+       }}
     end
   end
 
@@ -801,7 +813,9 @@ defmodule Wenche.Skattemelding do
 
   Generates XML documents and sends them to the validation endpoint.
 
-  Returns `{:ok, validation_result}` or `{:error, reason}`.
+  Returns `{:ok, %Wenche.SubmissionResult{}}` (carrying the generated XML
+  documents and the raw SKD validation response in `:response`) or
+  `{:error, reason}`.
   """
   def valider(
         %Aarsregnskap{} = regnskap,
@@ -831,7 +845,21 @@ defmodule Wenche.Skattemelding do
             request_envelope_opts(opts, aar, org, ref)
           )
 
-        SkdSkattemeldingClient.valider(skd_client, aar, org, request_xml)
+        case SkdSkattemeldingClient.valider(skd_client, aar, org, request_xml) do
+          {:ok, body} ->
+            {:ok,
+             %SubmissionResult{
+               documents: [
+                 %{name: "skattemelding", content: skattemelding_xml},
+                 %{name: "naering", content: naering_xml},
+                 %{name: "request", content: request_xml}
+               ],
+               response: body
+             }}
+
+          other ->
+            other
+        end
 
       {:error, reason} ->
         {:error, {:utkast_referanse_failed, reason}}

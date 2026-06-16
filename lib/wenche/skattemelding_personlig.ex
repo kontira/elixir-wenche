@@ -27,7 +27,14 @@ defmodule Wenche.SkattemeldingPersonlig do
   ID-porten-derived Altinn token (`AltinnClient`).
   """
 
-  alias Wenche.{AltinnClient, SkattemeldingPersonligXml, SkattemeldingXml, SkdSkattemeldingClient}
+  alias Wenche.{
+    AltinnClient,
+    SkattemeldingPersonligXml,
+    SkattemeldingXml,
+    SkdSkattemeldingClient,
+    SubmissionResult
+  }
+
   alias Wenche.Models.Aarsregnskap
 
   @dokumenttype "skattemeldingPersonlig"
@@ -126,10 +133,12 @@ defmodule Wenche.SkattemeldingPersonlig do
   Pass `:partsidentifikator` (the ENK owner's fnr/d-nummer) so the draft lookup
   and `/valider` are keyed by the tax subject rather than the org number.
 
-  Returns `{:ok, validation_body}` or `{:error, reason}`.
+  Returns `{:ok, %Wenche.SubmissionResult{}}` (carrying the generated XML
+  documents and the raw SKD validation response in `:response`) or
+  `{:error, reason}`.
   """
   @spec valider(Aarsregnskap.t(), SkdSkattemeldingClient.t(), keyword()) ::
-          {:ok, binary()} | {:error, term()}
+          {:ok, SubmissionResult.t()} | {:error, term()}
   def valider(%Aarsregnskap{} = regnskap, %SkdSkattemeldingClient{} = skd_client, opts \\ []) do
     aar = regnskap.regnskapsaar
     org = regnskap.selskap.org_nummer
@@ -139,8 +148,15 @@ defmodule Wenche.SkattemeldingPersonlig do
 
     case resolve_utkast_referanse(opts, skd_client, aar, subject) do
       {:ok, ref} ->
-        {_sm, _ne, request_xml} = bygg_xmls(regnskap, ref, opts)
-        SkdSkattemeldingClient.valider(skd_client, aar, subject, request_xml)
+        {sm_xml, naering_xml, request_xml} = bygg_xmls(regnskap, ref, opts)
+
+        case SkdSkattemeldingClient.valider(skd_client, aar, subject, request_xml) do
+          {:ok, body} ->
+            {:ok, build_submission_result(sm_xml, naering_xml, request_xml, body, nil)}
+
+          other ->
+            other
+        end
 
       {:error, reason} ->
         {:error, {:utkast_referanse_failed, reason}}
@@ -154,10 +170,11 @@ defmodule Wenche.SkattemeldingPersonlig do
   pass a `:skd_client` so the draft partsreferanse + dokumentreferanse are
   fetched (without it SKD rejects the submission).
 
-  Returns `{:ok, inbox_url}` or `{:error, reason}`.
+  Returns `{:ok, %Wenche.SubmissionResult{}}` (carrying the submitted XML
+  documents and the Altinn inbox URL) or `{:error, reason}`.
   """
   @spec send_inn(Aarsregnskap.t(), AltinnClient.t(), keyword()) ::
-          {:ok, term()} | {:error, term()}
+          {:ok, SubmissionResult.t()} | {:error, term()}
   def send_inn(%Aarsregnskap{} = regnskap, %AltinnClient{} = client, opts \\ []) do
     aar = regnskap.regnskapsaar
     org = regnskap.selskap.org_nummer
@@ -166,10 +183,16 @@ defmodule Wenche.SkattemeldingPersonlig do
 
     case resolve_utkast_referanse(opts, skd_client, aar, subject) do
       {:ok, ref} ->
-        {_sm, _ne, request_xml} = bygg_xmls(regnskap, ref, opts)
+        {sm_xml, naering_xml, request_xml} = bygg_xmls(regnskap, ref, opts)
         # NB: the Altinn instance is still created on the enterprise (org) as the
         # avgiver/reportee — only the SKD draft + envelope tin use the subject.
-        do_send_inn(client, org, aar, request_xml)
+        case do_send_inn(client, org, aar, request_xml) do
+          {:ok, %{inbox_url: inbox_url, response: response}} ->
+            {:ok, build_submission_result(sm_xml, naering_xml, request_xml, response, inbox_url)}
+
+          other ->
+            other
+        end
 
       {:error, reason} ->
         {:error, {:utkast_referanse_failed, reason}}
@@ -192,6 +215,18 @@ defmodule Wenche.SkattemeldingPersonlig do
          {:ok, _} <- AltinnClient.neste_prosesssteg(client, "skattemelding", instans) do
       AltinnClient.fullfoor_instans(client, "skattemelding", instans)
     end
+  end
+
+  defp build_submission_result(sm_xml, naering_xml, request_xml, response, reference) do
+    %SubmissionResult{
+      documents: [
+        %{name: "skattemelding", content: sm_xml},
+        %{name: "naering", content: naering_xml},
+        %{name: "request", content: request_xml}
+      ],
+      response: response,
+      reference: reference
+    }
   end
 
   @doc """

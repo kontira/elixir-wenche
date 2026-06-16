@@ -44,7 +44,7 @@ defmodule Wenche.MvaMelding do
   > This module is **experimental and untested in production**.
   """
 
-  alias Wenche.{AltinnClient, MvaMeldingXml}
+  alias Wenche.{AltinnClient, MvaMeldingXml, SubmissionResult}
 
   @validation_bases %{
     "test" => "https://idporten-api-test.sits.no/api/mva/grensesnittstoette/mva-melding/valider",
@@ -77,7 +77,8 @@ defmodule Wenche.MvaMelding do
   `Wenche.MvaMeldingXml.generer_konvolutt_xml/1` and
   `Wenche.MvaMeldingXml.generer_melding_xml/1` directly.
 
-  Returns `{:ok, inbox_url}` or `{:error, reason}`.
+  Returns `{:ok, %Wenche.SubmissionResult{}}` (carrying the submitted konvolutt
+  and melding XML and the Altinn inbox URL) or `{:error, reason}`.
   """
   def send_inn(mva_data, %AltinnClient{} = client, _opts \\ []) do
     org = mva_data.org_nummer
@@ -104,8 +105,18 @@ defmodule Wenche.MvaMelding do
              melding_xml,
              "application/xml"
            ),
-         {:ok, _} <- AltinnClient.fullfoor_instans(client, "mva_melding", instans) do
-      AltinnClient.fullfoor_instans(client, "mva_melding", instans)
+         {:ok, _} <- AltinnClient.fullfoor_instans(client, "mva_melding", instans),
+         {:ok, %{inbox_url: inbox_url, response: response}} <-
+           AltinnClient.fullfoor_instans(client, "mva_melding", instans) do
+      {:ok,
+       %SubmissionResult{
+         documents: [
+           %{name: "konvolutt", content: konvolutt_xml},
+           %{name: "melding", content: melding_xml}
+         ],
+         response: response,
+         reference: inbox_url
+       }}
     end
   end
 
@@ -135,8 +146,12 @@ defmodule Wenche.MvaMelding do
             regel_definisjon: String.t() | nil
           }
         ],
-        raw_xml: String.t()
+        raw_xml: String.t(),
+        request_xml: String.t()
       }
+
+  `raw_xml` is the validation response document; `request_xml` is the melding
+  XML that was sent (useful for persisting an audit trail of the validation).
 
   Returns `{:ok, validation_result}` or `{:error, reason}`.
   """
@@ -170,7 +185,13 @@ defmodule Wenche.MvaMelding do
            )
          ) do
       {:ok, %Req.Response{status: 200, body: body}} ->
-        {:ok, parse_valideringsresultat(to_string(body))}
+        result =
+          body
+          |> to_string()
+          |> parse_valideringsresultat()
+          |> Map.put(:request_xml, melding_xml)
+
+        {:ok, result}
 
       {:ok, %Req.Response{status: status, body: body}} ->
         {:error, {:valider_failed, status, body}}

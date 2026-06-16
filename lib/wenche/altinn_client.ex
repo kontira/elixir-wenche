@@ -271,7 +271,10 @@ defmodule Wenche.AltinnClient do
   app flows that explicitly stop on a confirmation/signing task, for example
   revisor confirmation.
 
-  Returns `{:ok, inbox_url}` or `{:error, reason}`.
+  Returns `{:ok, %{inbox_url: inbox_url, response: body}}` on success — `body`
+  is the raw response of the final `process/next` transition (for Skatteetaten
+  flows this is what the receipt/`betalingsinformasjon` is derived from). Returns
+  `{:error, reason}` otherwise.
   """
   def fullfoor_instans(%__MODULE__{} = client, app_key, instans) do
     instance_id = instans["id"]
@@ -284,8 +287,8 @@ defmodule Wenche.AltinnClient do
              client.req_options
            )
          ) do
-      {:ok, %Req.Response{status: 200}} ->
-        {:ok, client.inbox_url}
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:ok, %{inbox_url: client.inbox_url, response: body}}
 
       {:ok, %Req.Response{status: status, body: body}} ->
         {:error, {:altinn_complete_error, status, body}}

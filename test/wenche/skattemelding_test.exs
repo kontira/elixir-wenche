@@ -302,8 +302,11 @@ defmodule Wenche.SkattemeldingTest do
       skd_client =
         Wenche.SkdSkattemeldingClient.new("token", env: "test", req_options: @req_opts)
 
-      assert {:ok, %{"ok" => true}} =
+      assert {:ok, %Wenche.SubmissionResult{response: %{"ok" => true}, documents: documents}} =
                Skattemelding.valider(sample_regnskap(), %SkattemeldingKonfig{}, skd_client)
+
+      assert Enum.map(documents, & &1.name) == ["skattemelding", "naering", "request"]
+      assert Enum.all?(documents, &(is_binary(&1.content) and &1.content != ""))
 
       assert_received {^ref, posted_body}
       assert posted_body =~ "skattemeldingOgNaeringsspesifikasjonRequest"

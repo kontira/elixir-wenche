@@ -26,7 +26,7 @@ defmodule Wenche.Aarsregnskap do
     Selskap
   }
 
-  alias Wenche.{AltinnClient, BrgXml}
+  alias Wenche.{AltinnClient, BrgXml, SubmissionResult}
 
   @doc """
   Reads a config.yaml file and returns an Aarsregnskap struct.
@@ -100,7 +100,8 @@ defmodule Wenche.Aarsregnskap do
   `Wenche.BrgXml.generer_hovedskjema/2` and `Wenche.BrgXml.generer_underskjema/1`
   directly.
 
-  Returns `{:ok, inbox_url}` or `{:error, reason}`.
+  Returns `{:ok, %Wenche.SubmissionResult{}}` (carrying the submitted hovedskjema
+  and underskjema XML and the Altinn inbox URL) or `{:error, reason}`.
   """
   def send_inn(%Aarsregnskap{} = regnskap, %AltinnClient{} = client, opts \\ []) do
     case valider(regnskap) do
@@ -137,8 +138,18 @@ defmodule Wenche.Aarsregnskap do
              "Underskjema",
              underskjema,
              "application/xml"
-           ) do
-      AltinnClient.fullfoor_instans(client, "aarsregnskap", instans)
+           ),
+         {:ok, %{inbox_url: inbox_url, response: response}} <-
+           AltinnClient.fullfoor_instans(client, "aarsregnskap", instans) do
+      {:ok,
+       %SubmissionResult{
+         documents: [
+           %{name: "hovedskjema", content: hovedskjema},
+           %{name: "underskjema", content: underskjema}
+         ],
+         response: response,
+         reference: inbox_url
+       }}
     end
   end
 

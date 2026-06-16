@@ -235,4 +235,42 @@ defmodule Wenche.AarsregnskapTest do
       assert regnskap.noter.antall_ansatte == 2
     end
   end
+
+  describe "send_inn/3" do
+    @send_opts [plug: {Req.Test, Wenche.AltinnClient.Aarsregnskap}, retry: false]
+
+    test "returns a SubmissionResult carrying the submitted XML and the Altinn response" do
+      Req.Test.stub(Wenche.AltinnClient.Aarsregnskap, fn conn ->
+        cond do
+          conn.method == "POST" and String.ends_with?(conn.request_path, "/instances") ->
+            conn
+            |> Plug.Conn.put_status(201)
+            |> Req.Test.json(%{
+              "id" => "50012345/abc-123",
+              "data" => [
+                %{"id" => "h-1", "dataType" => "Hovedskjema"},
+                %{"id" => "u-1", "dataType" => "Underskjema"}
+              ]
+            })
+
+          String.contains?(conn.request_path, "/process/next") ->
+            Req.Test.json(conn, %{"ended" => "2025-06-01T10:00:00Z"})
+
+          true ->
+            # data element uploads (PUT /data/...)
+            Req.Test.json(conn, %{})
+        end
+      end)
+
+      client = Wenche.AltinnClient.new("test-token", env: "test", req_options: @send_opts)
+
+      assert {:ok, %Wenche.SubmissionResult{} = result} =
+               Wenche.Aarsregnskap.send_inn(sample_regnskap(), client)
+
+      assert Enum.map(result.documents, & &1.name) == ["hovedskjema", "underskjema"]
+      assert Enum.all?(result.documents, &(is_binary(&1.content) and &1.content =~ "<"))
+      assert result.response == %{"ended" => "2025-06-01T10:00:00Z"}
+      assert is_binary(result.reference)
+    end
+  end
 end
