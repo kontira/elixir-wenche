@@ -53,9 +53,13 @@ defmodule Wenche.SkdClient do
              req_options
            )
          ) do
-      {:ok, %Req.Response{status: status, body: %{"hovedskjemaid" => id}}}
-      when status in 200..299 ->
-        {:ok, id}
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
+        # SKD returns the id as "hovedskjemaId" (camelCase); accept the
+        # lowercase variant too for robustness.
+        case body["hovedskjemaId"] || body["hovedskjemaid"] do
+          nil -> {:error, {:hovedskjema_failed, status, body}}
+          id -> {:ok, id}
+        end
 
       {:ok, %Req.Response{status: status, body: body}} ->
         {:error, {:hovedskjema_failed, status, body}}

@@ -39,12 +39,34 @@ defmodule Wenche.SkdClientTest do
         assert conn.method == "POST"
         assert String.contains?(conn.request_path, "/1086H")
 
+        # SKD returns the id as camelCase "hovedskjemaId".
+        Req.Test.json(conn, %{"hovedskjemaId" => "abc-123"})
+      end)
+
+      client = SkdClient.new("test-token", env: "test", req_options: @req_opts)
+
+      assert {:ok, "abc-123"} = SkdClient.send_hovedskjema(client, 2024, "<xml/>")
+    end
+
+    test "send_hovedskjema accepts the lowercase hovedskjemaid variant" do
+      Req.Test.stub(Wenche.SkdClient, fn conn ->
         Req.Test.json(conn, %{"hovedskjemaid" => "abc-123"})
       end)
 
       client = SkdClient.new("test-token", env: "test", req_options: @req_opts)
 
       assert {:ok, "abc-123"} = SkdClient.send_hovedskjema(client, 2024, "<xml/>")
+    end
+
+    test "send_hovedskjema fails when a 2xx response carries no id" do
+      Req.Test.stub(Wenche.SkdClient, fn conn ->
+        Req.Test.json(conn, %{"feil" => "noe gikk galt"})
+      end)
+
+      client = SkdClient.new("test-token", env: "test", req_options: @req_opts)
+
+      assert {:error, {:hovedskjema_failed, 200, %{"feil" => "noe gikk galt"}}} =
+               SkdClient.send_hovedskjema(client, 2024, "<xml/>")
     end
 
     test "send_underskjema passes req_options through" do
