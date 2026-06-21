@@ -312,6 +312,14 @@ defmodule Wenche.BrgXmlTest do
     end
 
     @tag :xsd
+    test "underskjema omits <investering> and validates when kortsiktige_investeringer is zero" do
+      # sample_regnskap/0 leaves kortsiktige_investeringer at its 0 default.
+      xml = BrgXml.generer_underskjema(sample_regnskap())
+      refute xml =~ "<investering>"
+      assert_xml_valid!(xml, "#{@xsd_dir}/RR-0002-U_758-51980.xsd")
+    end
+
+    @tag :xsd
     test "underskjema validates with kortsiktige investeringer (omløp shares)" do
       regnskap = %{
         sample_regnskap()

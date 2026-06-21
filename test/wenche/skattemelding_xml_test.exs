@@ -1179,7 +1179,33 @@ defmodule Wenche.SkattemeldingXmlTest do
 
     @tag :xsd
     test "naeringsspesifikasjon (v6) validates" do
+      # sample_regnskap/0 carries kortsiktige_investeringer: 120_000, so this is
+      # the WITH-kode-1800 case.
       xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(sample_regnskap())
+      assert xml =~ ">1800<"
+      assert_xml_valid!(xml, "#{@xsd_dir}/naeringsspesifikasjon_v6_ekstern.xsd")
+    end
+
+    @tag :xsd
+    test "naeringsspesifikasjon (v6) without kortsiktige_investeringer omits kode 1800 and validates" do
+      base = sample_regnskap()
+
+      regnskap = %{
+        base
+        | balanse: %{
+            base.balanse
+            | eiendeler: %{
+                base.balanse.eiendeler
+                | omloepmidler: %Omloepmidler{
+                    kortsiktige_fordringer: 80_000,
+                    bankinnskudd: 300_000
+                  }
+              }
+          }
+      }
+
+      xml = SkattemeldingXml.generer_naeringsspesifikasjon_xml(regnskap)
+      refute xml =~ ">1800<"
       assert_xml_valid!(xml, "#{@xsd_dir}/naeringsspesifikasjon_v6_ekstern.xsd")
     end
 
